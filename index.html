@@ -107,21 +107,31 @@
     height:100%; width:100%;
     display:flex; align-items:center; justify-content:center;
     padding:70px 20px 96px;
-    overflow:auto;
+    overflow:hidden;
   }
+  /* Only becomes scrollable while zoomed in (so the enlarged page can be
+     panned). Left as overflow:hidden otherwise — a cover page (single,
+     narrow) and a two-page spread have different widths, and letting the
+     stage scroll at all times caused a scrollbar to appear/disappear on
+     every single flip, which is what was producing the page-jump. */
+  #stage.zoomed{ overflow:auto; }
   /* #flip-outer is a wrapper WE fully control, separate from #flipbook
      (which St.PageFlip manages internally and sets its own inline styles
      on). Putting the mirror/zoom transform here instead of on #flipbook
      avoids it being silently overwritten by the library's own layout code
-     — that was the cause of the "mirrors for a split second then reverts"
-     bug. Each page's own CANVAS gets an individual counter-mirror (set in
-     JS, see ensurePageRendered) instead of the parent .page div, for the
+     — that was the cause of the earlier "mirrors for a split second then
+     reverts" bug. Each page's own CANVAS gets an individual counter-mirror
+     (set in JS, see renderPageAt) instead of the parent .page div, for the
      same reason — the library manages .page's transform directly for the
-     fold/flip animation, so anything we put there gets clobbered too. */
+     fold/flip animation, so anything we put there gets clobbered too.
+     No CSS transition here: a transitioned transform can make browsers
+     composite from a cached, lower-resolution layer rather than
+     re-rasterizing at the new scale, which was very likely the cause of
+     zoom still looking soft/pixelated even though the canvas itself was
+     re-rendered at higher resolution. */
   #flip-outer{
     transform: scaleX(var(--mirror-x, 1)) scale(var(--zoom, 1));
     transform-origin:center center;
-    transition:transform .25s ease;
     flex-shrink:0;
   }
   #flipbook{
@@ -297,6 +307,7 @@
   const emptyState = document.getElementById('empty-state');
   const flipbookEl = document.getElementById('flipbook');
   const flipOuterEl = document.getElementById('flip-outer');
+  const stageEl = document.getElementById('stage');
   const curPageEl = document.getElementById('cur-page');
   const pageInput = document.getElementById('page-input');
   const totalPagesEl = document.getElementById('total-pages');
@@ -342,10 +353,12 @@
   async function detectDirection(pdf) {
     try {
       const vp = await pdf.getViewerPreferences?.();
+      console.log('[flipbook] getViewerPreferences() ->', vp);
       if (vp && vp.Direction) {
+        console.log('[flipbook] direction from ViewerPreferences:', vp.Direction);
         return vp.Direction === 'R2L' ? 'rtl' : 'ltr';
       }
-    } catch (e) {}
+    } catch (e) { console.log('[flipbook] getViewerPreferences() failed:', e); }
 
     try {
       let rtlCount = 0, ltrCount = 0, docLang = null;
@@ -358,10 +371,12 @@
         rtlCount += (text.match(RTL_SCRIPT) || []).length;
         ltrCount += (text.match(LTR_SCRIPT) || []).length;
       }
+      console.log('[flipbook] docLang:', docLang, ' rtlChars:', rtlCount, ' ltrChars:', ltrCount);
       if (docLang && RTL_LANGS.some(l => docLang.startsWith(l))) return 'rtl';
       if (rtlCount + ltrCount > 0) return rtlCount > ltrCount ? 'rtl' : 'ltr';
-    } catch (e) {}
+    } catch (e) { console.log('[flipbook] text-sampling failed (likely no text layer):', e); }
 
+    console.log('[flipbook] no signal found, defaulting to ltr');
     return 'ltr';
   }
 
@@ -453,12 +468,15 @@
     if (newIndex === zoomIndex) return;
     zoomIndex = newIndex;
     flipOuterEl.style.setProperty('--zoom', ZOOM_STEPS[zoomIndex]);
+    stageEl.classList.toggle('zoomed', zoomIndex > 0);
     document.getElementById('btn-zoom-in').disabled = zoomIndex === ZOOM_STEPS.length - 1;
     document.getElementById('btn-zoom-out').disabled = zoomIndex === 0;
-    // Refresh the page the reader is actually looking at immediately, at
-    // the new resolution, for instant crispness. Other buffered pages will
-    // refresh naturally as onPageChanged runs while the reader keeps moving.
+    // Refresh the page(s) the reader is actually looking at immediately, at
+    // the new resolution — current page plus its spread neighbor, since a
+    // two-page spread shows two logical pages at once.
     await ensurePageRendered(pdfDoc, currentLogicalIdx);
+    await ensurePageRendered(pdfDoc, currentLogicalIdx - 1);
+    await ensurePageRendered(pdfDoc, currentLogicalIdx + 1);
     trimBehind(currentLogicalIdx);
   }
 
@@ -547,6 +565,7 @@
 
     const forcedDir = params.get('dir');
     dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
+    console.log('[flipbook] forcedDir:', forcedDir, ' final dir:', dir, ' DISABLE_MIRROR:', DISABLE_MIRROR, ' mirror-x applied:', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
     document.documentElement.setAttribute('dir', dir);
     flipOuterEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
     loadingSub.textContent = `Detected ${dir === 'rtl' ? 'right-to-left' : 'left-to-right'} binding…`;
