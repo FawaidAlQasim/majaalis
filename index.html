@@ -105,15 +105,19 @@
     height:100%; width:100%;
     display:flex; align-items:center; justify-content:center;
     padding:70px 20px 96px;
+    overflow:auto;
   }
   #flipbook{
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
     border-radius:2px;
+    transform: scaleX(var(--mirror-x, 1)) scale(var(--zoom, 1));
+    transform-origin:center center;
+    transition:transform .25s ease;
+    flex-shrink:0;
   }
-  /* RTL binding: mirror the whole book so the flip motion runs the opposite way,
-     then un-mirror each page's own content so the rendered PDF page reads normally. */
-  #flipbook.mirror-book{ transform:scaleX(-1); }
-  #flipbook.mirror-book .page{ transform:scaleX(-1); }
+  /* RTL binding: --mirror-x is set to -1 so the flip motion runs the opposite
+     way; each page gets the counter-mirror so the rendered PDF page reads normally. */
+  #flipbook .page{ transform:scaleX(var(--mirror-x, 1)); }
 
   .page{
     background:var(--parchment);
@@ -194,6 +198,8 @@
     #book-title{ font-size:.9rem; }
     input[type=range]{ width:110px; }
     #stage{ padding:60px 8px 90px; }
+    #topbar > div{ gap:6px !important; }
+    .icon-btn{ width:34px; height:34px; }
   }
 </style>
 </head>
@@ -207,8 +213,14 @@
 </div>
 
 <div id="topbar">
-  <div id="book-title">اسم الكتاب<span>Interactive Reader</span></div>
+  <div id="book-title">كتب مجلس السماع<span>a-alqasim.com</span></div>
   <div style="display:flex; gap:8px;">
+    <button class="icon-btn" id="btn-zoom-out" title="Zoom out">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
+    <button class="icon-btn" id="btn-zoom-in" title="Zoom in">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
     <button class="icon-btn" id="btn-toc" title="Table of contents" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
     </button>
@@ -272,6 +284,23 @@
   let pageFlip = null;
   let numPages = 0;
   let dir = 'ltr';
+  let pdfDoc = null;
+  let pageDivs = [];
+  let currentLogicalIdx = 0;
+
+  // ---- Zoom: re-renders the PDF page itself at higher resolution (not a
+  // CSS stretch of the existing bitmap), so zooming in stays crisp on a
+  // vector-based PDF instead of pixelating like browser/CSS zoom does. ----
+  const ZOOM_STEPS = [1, 1.5, 2, 2.5, 3];
+  let zoomIndex = 0;
+  const renderedScale = new Map(); // logicalIdx -> scale it was last rendered at
+
+  function currentScale() { return RENDER_SCALE * ZOOM_STEPS[zoomIndex]; }
+  // Fewer neighbor pages are kept rendered while zoomed in, since each page
+  // costs much more memory at higher resolution — this is what keeps a
+  // 1000+ page book usable instead of exhausting the browser's memory.
+  function currentRadius() { return zoomIndex === 0 ? 2 : 1; }
+  function currentMaxRendered() { return zoomIndex === 0 ? 9 : 5; }
 
   const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g;
   const LTR_SCRIPT = /[A-Za-z]/g;
@@ -303,15 +332,74 @@
     return 'ltr';
   }
 
-  async function renderPageToCanvas(pdf, pageNum) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: RENDER_SCALE });
+  async function renderPageAt(pdf, logicalIdx0, scale) {
+    const page = await pdf.getPage(logicalIdx0 + 1);
+    const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
     return canvas;
+  }
+
+  // Renders a single logical page into its placeholder div, but only if it
+  // isn't already rendered at the current zoom scale (cheap no-op otherwise).
+  async function ensurePageRendered(pdf, logicalIdx0) {
+    if (logicalIdx0 < 0 || logicalIdx0 >= numPages) return;
+    const scale = currentScale();
+    if (renderedScale.get(logicalIdx0) === scale) return;
+    const canvas = await renderPageAt(pdf, logicalIdx0, scale);
+    const el = pageDivs[logicalIdx0];
+    el.innerHTML = '';
+    el.appendChild(canvas);
+    renderedScale.set(logicalIdx0, scale);
+  }
+
+  // Reverts pages far from the current one back to an empty placeholder,
+  // freeing their canvas memory — essential for a 1000+ page book, since
+  // keeping every page rendered simultaneously would exhaust browser memory.
+  function evictFarPages(centerIdx) {
+    const radius = currentRadius();
+    const maxRendered = currentMaxRendered();
+    if (renderedScale.size <= maxRendered) return;
+    const keep = new Set();
+    for (let i = centerIdx - radius; i <= centerIdx + radius; i++) keep.add(i);
+    const farthestFirst = [...renderedScale.keys()].sort(
+      (a, b) => Math.abs(b - centerIdx) - Math.abs(a - centerIdx)
+    );
+    for (const idx of farthestFirst) {
+      if (renderedScale.size <= maxRendered) break;
+      if (keep.has(idx)) continue;
+      pageDivs[idx].innerHTML = '<div class="page-loading">…</div>';
+      renderedScale.delete(idx);
+    }
+  }
+
+  // Renders the current page plus a small neighborhood around it (so
+  // flipping forward/back feels instant), then evicts anything now far away.
+  async function updateAroundPage(pdf, centerIdx) {
+    currentLogicalIdx = centerIdx;
+    const radius = currentRadius();
+    const order = [centerIdx];
+    for (let d = 1; d <= radius; d++) {
+      if (centerIdx - d >= 0) order.push(centerIdx - d);
+      if (centerIdx + d < numPages) order.push(centerIdx + d);
+    }
+    for (const idx of order) {
+      await ensurePageRendered(pdf, idx);
+    }
+    evictFarPages(centerIdx);
+  }
+
+  async function setZoom(newIndex) {
+    newIndex = Math.max(0, Math.min(ZOOM_STEPS.length - 1, newIndex));
+    if (newIndex === zoomIndex) return;
+    zoomIndex = newIndex;
+    flipbookEl.style.setProperty('--zoom', ZOOM_STEPS[zoomIndex]);
+    document.getElementById('btn-zoom-in').disabled = zoomIndex === ZOOM_STEPS.length - 1;
+    document.getElementById('btn-zoom-out').disabled = zoomIndex === 0;
+    await updateAroundPage(pdfDoc, currentLogicalIdx);
   }
 
   function logicalToLibraryIndex(logicalIdx0) {
@@ -322,6 +410,15 @@
   }
   function goForward() { dir === 'rtl' ? pageFlip.flipPrev() : pageFlip.flipNext(); }
   function goBackward() { dir === 'rtl' ? pageFlip.flipNext() : pageFlip.flipPrev(); }
+
+  // Used by the TOC and the page slider to jump straight to a page: makes
+  // sure that page is actually rendered before/while flipping to it, since
+  // with lazy rendering a distant page may not have a canvas yet.
+  async function jumpToLogical(logicalIdx0) {
+    await ensurePageRendered(pdfDoc, logicalIdx0);
+    pageFlip.flip(logicalToLibraryIndex(logicalIdx0));
+    updateAroundPage(pdfDoc, logicalIdx0);
+  }
 
   async function buildTOC(pdf) {
     let outline;
@@ -352,7 +449,7 @@
 
         if (logicalIdx0 !== null) {
           btn.addEventListener('click', () => {
-            pageFlip.flip(logicalToLibraryIndex(logicalIdx0));
+            jumpToLogical(logicalIdx0);
             tocOverlay.classList.remove('show');
           });
         } else {
@@ -380,6 +477,7 @@
       console.error('Could not load PDF:', e);
       return;
     }
+    pdfDoc = pdf;
 
     numPages = pdf.numPages;
     totalPagesEl.textContent = numPages;
@@ -388,7 +486,7 @@
     const forcedDir = params.get('dir');
     dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
     document.documentElement.setAttribute('dir', dir);
-    if (dir === 'rtl' && !DISABLE_MIRROR) flipbookEl.classList.add('mirror-book');
+    flipbookEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
     loadingSub.textContent = `Detected ${dir === 'rtl' ? 'right-to-left' : 'left-to-right'} binding…`;
 
     const firstPage = await pdf.getPage(1);
@@ -416,7 +514,11 @@
       flippingTime: 700
     });
 
-    const pageDivs = [];
+    // Build lightweight placeholder DOM only — pages are NOT rendered here.
+    // For a 1000+ page book, rendering every page up front would take
+    // minutes and likely exhaust the browser's memory; instead only a small
+    // neighborhood around the current page is ever rendered at once.
+    pageDivs = [];
     for (let i = 0; i < numPages; i++) {
       const placeholder = document.createElement('div');
       placeholder.className = 'page';
@@ -426,31 +528,28 @@
     const orderedDivs = dir === 'rtl' ? [...pageDivs].reverse() : pageDivs;
     pageFlip.loadFromHTML(orderedDivs);
 
-    for (let i = 1; i <= numPages; i++) {
-      const canvas = await renderPageToCanvas(pdf, i);
-      const el = pageDivs[i - 1];
-      el.innerHTML = '';
-      el.appendChild(canvas);
-
-      const pct = Math.round((i / numPages) * 100);
-      progressBar.style.width = pct + '%';
-      loadingSub.textContent = `Rendering page ${i} of ${numPages}…`;
-
-      if (i === 1) loadingEl.classList.add('hide');
-    }
+    loadingSub.textContent = 'Rendering page 1…';
+    await ensurePageRendered(pdf, 0);
+    loadingEl.classList.add('hide');
+    updateAroundPage(pdf, 0); // fills in the neighborhood in the background
 
     pageFlip.on('flip', (e) => {
-      const logical = libraryToLogicalIndex(e.data) + 1;
-      curPageEl.textContent = logical;
-      slider.value = logical;
+      const logicalIdx0 = libraryToLogicalIndex(e.data);
+      curPageEl.textContent = logicalIdx0 + 1;
+      slider.value = logicalIdx0 + 1;
+      updateAroundPage(pdf, logicalIdx0);
     });
 
     document.getElementById('btn-next').onclick = goForward;
     document.getElementById('btn-prev').onclick = goBackward;
     slider.addEventListener('input', () => {
       const logicalIdx0 = parseInt(slider.value, 10) - 1;
-      pageFlip.flip(logicalToLibraryIndex(logicalIdx0));
+      jumpToLogical(logicalIdx0);
     });
+
+    document.getElementById('btn-zoom-in').onclick = () => setZoom(zoomIndex + 1);
+    document.getElementById('btn-zoom-out').onclick = () => setZoom(zoomIndex - 1);
+    document.getElementById('btn-zoom-out').disabled = true;
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight') { dir === 'rtl' ? goForward() : goBackward(); }
