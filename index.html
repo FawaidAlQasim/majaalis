@@ -26,12 +26,13 @@
 
   html,body{
     margin:0; padding:0; height:100%;
-    background-color: #f7f1e2;
+    background-color: #0f3d2e;
     background-image:
-      repeating-linear-gradient(45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px),
-      repeating-linear-gradient(-45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px);
+      repeating-linear-gradient(45deg, rgba(216,184,114,0.05) 0, rgba(216,184,114,0.05) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(-45deg, rgba(216,184,114,0.05) 0, rgba(216,184,114,0.05) 1px, transparent 1px, transparent 26px),
+      radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
     font-family:'Inter', sans-serif;
-    color:var(--charcoal);
+    color:var(--parchment);
     overflow:hidden;
   }
 
@@ -39,10 +40,11 @@
   #loading{
     position:fixed; inset:0; z-index:50;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background-color: #f7f1e2;
+    background-color: #0f3d2e;
     background-image:
-      repeating-linear-gradient(45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px),
-      repeating-linear-gradient(-45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px);
+      repeating-linear-gradient(45deg, rgba(216,184,114,0.05) 0, rgba(216,184,114,0.05) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(-45deg, rgba(216,184,114,0.05) 0, rgba(216,184,114,0.05) 1px, transparent 1px, transparent 26px),
+      radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
     transition:opacity .6s ease;
   }
   #loading.hide{ opacity:0; pointer-events:none; }
@@ -61,8 +63,8 @@
   }
   .ornament::after{ inset:16px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
-  #loading-text{ font-family:'Amiri', serif; font-size:1.05rem; letter-spacing:.04em; color:var(--ink-green); }
-  #loading-sub{ margin-top:6px; font-size:.8rem; color:#8a7550; font-family:'Inter',sans-serif; }
+  #loading-text{ font-family:'Amiri', serif; font-size:1.05rem; letter-spacing:.04em; color:var(--gold-bright); }
+  #loading-sub{ margin-top:6px; font-size:.8rem; color:var(--sage); font-family:'Inter',sans-serif; }
   #progress-track{
     width:220px; height:2px; margin-top:20px;
     background:rgba(184,147,75,.25); border-radius:2px; overflow:hidden;
@@ -103,7 +105,6 @@
   .icon-btn:disabled:hover{ background:rgba(15,61,46,.55); color:var(--gold-bright); border-color:rgba(184,147,75,.4); }
   .icon-btn svg{ width:17px; height:17px; }
 
-  /* Mirror the prev/next chevrons in RTL so they point toward book-start / book-forward correctly */
   html[dir="rtl"] #btn-prev svg,
   html[dir="rtl"] #btn-next svg{ transform:scaleX(-1); }
 
@@ -114,13 +115,6 @@
     padding:70px 12px 96px;
     overflow:hidden;
   }
-  /* #flip-outer is a wrapper WE fully control, separate from #flipbook
-     (which St.PageFlip manages internally and sets its own inline styles
-     on). Putting the mirror transform here instead of on #flipbook avoids
-     it being silently overwritten by the library's own layout code. Each
-     page's own CANVAS gets an individual counter-mirror (set in JS, see
-     renderPageAt) instead of the parent .page div, for the same reason —
-     the library manages .page's transform directly for the flip animation. */
   #flip-outer{
     transform: scaleX(var(--mirror-x, 1));
     width:100%;
@@ -132,14 +126,14 @@
   #flipbook{
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
     border-radius:2px;
-    touch-action:pan-y; /* let vertical scroll through, we handle horizontal swipe ourselves */
+    touch-action:pan-y;
   }
 
   .page{
     background:var(--parchment);
     overflow:hidden;
   }
-  .page canvas{ width:100%; height:100%; display:block; }
+  .page img{ width:100%; height:100%; display:block; object-fit:cover; }
   .page-loading{
     position:absolute; inset:0;
     background:var(--parchment);
@@ -216,9 +210,9 @@
     text-align:center; padding:40px;
   }
   #empty-state.show{ display:flex; }
-  #empty-state h1{ font-family:'Rakkas',serif; color:var(--ink-green); font-size:1.6rem; margin:0 0 10px; }
-  #empty-state p{ font-family:'Inter',sans-serif; color:#7a6a4a; max-width:420px; line-height:1.6; font-size:.9rem; direction:ltr; }
-  #empty-state code{ background:rgba(184,147,75,.15); padding:2px 7px; border-radius:4px; color:var(--ink-green); }
+  #empty-state h1{ font-family:'Rakkas',serif; color:var(--gold-bright); font-size:1.6rem; margin:0 0 10px; }
+  #empty-state p{ font-family:'Inter',sans-serif; color:var(--sage); max-width:420px; line-height:1.6; font-size:.9rem; direction:ltr; }
+  #empty-state code{ background:rgba(184,147,75,.15); padding:2px 7px; border-radius:4px; color:var(--gold-bright); }
 
   @media (max-width:640px){
     #book-title{ font-size:.9rem; }
@@ -234,7 +228,7 @@
 <div id="loading">
   <div class="ornament"></div>
   <div id="loading-text">جارٍ تحميل الكتاب</div>
-  <div id="loading-sub">Preparing pages…</div>
+  <div id="loading-sub">جاري التحميل...</div>
   <div id="progress-track"><div id="progress-bar"></div></div>
 </div>
 
@@ -244,7 +238,7 @@
     <button class="icon-btn" id="btn-toc" title="Table of contents" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
     </button>
-    <a class="icon-btn" id="btn-download" title="Download PDF" download>
+    <a class="icon-btn" id="btn-download" title="Download PDF" download style="display:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>
     </a>
     <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
@@ -261,7 +255,7 @@
 
 <div id="empty-state">
   <h1>لا يوجد كتاب محمّل — No book loaded</h1>
-  <p>Place your PDF next to this file and name it <code>book.pdf</code>, or add <code>?pdf=yourfile.pdf</code> to the URL. See README.md for full GitHub Pages deployment steps.</p>
+  <p>Put a converted book folder (from <code>pdf_to_flipbook.py</code>) next to this file, named <code>book</code> (containing <code>manifest.json</code> and a <code>pages/</code> folder), or add <code>?book=foldername</code> to the URL. See README.md.</p>
 </div>
 
 <div id="toc-overlay">
@@ -282,21 +276,15 @@
   </button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- No PDF.js needed anymore — pages are pre-rendered images, so only the
+     flip-animation library is required. -->
 <script src="https://unpkg.com/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
 
 <script>
 (function(){
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-
   const params = new URLSearchParams(location.search);
-  const PDF_URL = params.get('pdf') || 'book.pdf';
+  const BOOK_DIR = params.get('book') || 'book';
   const DISABLE_MIRROR = params.get('mirror') === '0';
-  // Base render resolution, boosted for high-DPI (retina) screens so the
-  // PDF's vector content stays crisp without needing any zoom feature —
-  // capped at 2x device pixel ratio to keep memory reasonable across a
-  // 1000+ page book.
-  const RENDER_SCALE = 2.0 * Math.min(window.devicePixelRatio || 1, 2);
 
   const loadingEl = document.getElementById('loading');
   const progressBar = document.getElementById('progress-bar');
@@ -316,79 +304,59 @@
   let pageFlip = null;
   let numPages = 0;
   let dir = 'ltr';
-  let pdfDoc = null;
+  let manifest = null;
   let pdfAspect = 0.72;
   let pageDivs = [];
   let currentLogicalIdx = 0;
 
-  const renderedPages = new Set(); // logical indices currently holding a rendered canvas
+  const renderedPages = new Set(); // logical indices currently holding a loaded image
 
-  // ---- Lazy loading strategy for very large books (this PDF: 1124 pages) ----
+  // ---- Lazy loading strategy for very large books ----
   // Load the first 50 pages up front (page 1 shows the instant it's ready,
-  // the rest of that batch renders in the background), then keep buffering
+  // the rest of that batch loads in the background), then keep buffering
   // 25 pages ahead of wherever the reader currently is. Pages far BEHIND
   // the current position are evicted back to placeholders to keep memory
-  // bounded even after reading hundreds of pages forward.
+  // bounded even after reading hundreds of pages forward. This matters
+  // less than it did for live PDF rendering (loading an <img> is much
+  // cheaper than rasterizing a PDF page), but is kept as a safety margin
+  // for books with hundreds+ of pages on low-memory mobile devices.
   const INITIAL_BATCH = 50;
   const PREFETCH_CHUNK = 25;
-  // How many rendered pages to keep behind the current position before
-  // evicting them. Raised generously so pages "stay loaded" for normal
-  // reading sessions, but NOT unlimited — fully caching a 1124-page book
-  // at retina resolution would be several GB of canvas memory, which
-  // mobile Safari in particular will kill the tab over. This is a safety
-  // net, not a hard limit you're expected to hit in ordinary use.
   const KEEP_BEHIND = 150;
-  const HARD_CAP = 200;
+  const HARD_CAP = 250;
   let loadedUpTo = -1;
 
-  const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g;
-  const LTR_SCRIPT = /[A-Za-z]/g;
-  const RTL_LANGS = ['ar','he','fa','ur','yi','ps','sd','ug'];
-
-  async function detectDirection(pdf) {
-    try {
-      const vp = await pdf.getViewerPreferences?.();
-      if (vp && vp.Direction) return vp.Direction === 'R2L' ? 'rtl' : 'ltr';
-    } catch (e) {}
-
-    try {
-      let rtlCount = 0, ltrCount = 0, docLang = null;
-      const pagesToSample = Math.min(pdf.numPages, 3);
-      for (let i = 1; i <= pagesToSample; i++) {
-        const page = await pdf.getPage(i);
-        const tc = await page.getTextContent();
-        if (!docLang && tc.lang) docLang = tc.lang.toLowerCase();
-        const text = tc.items.map(it => it.str).join(' ');
-        rtlCount += (text.match(RTL_SCRIPT) || []).length;
-        ltrCount += (text.match(LTR_SCRIPT) || []).length;
-      }
-      if (docLang && RTL_LANGS.some(l => docLang.startsWith(l))) return 'rtl';
-      if (rtlCount + ltrCount > 0) return rtlCount > ltrCount ? 'rtl' : 'ltr';
-    } catch (e) {}
-
-    return 'ltr';
+  function pageImageUrl(logicalIdx0) {
+    const num = String(logicalIdx0 + 1).padStart(manifest.digits || 4, '0');
+    return `${BOOK_DIR}/pages/${num}.${manifest.format || 'jpg'}`;
   }
 
-  async function renderPageAt(pdf, logicalIdx0, scale) {
-    const page = await pdf.getPage(logicalIdx0 + 1);
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    if (dir === 'rtl' && !DISABLE_MIRROR) canvas.style.transform = 'scaleX(-1)';
-    return canvas;
+  function loadImage(logicalIdx0) {
+    return new Promise((resolve, reject) => {
+      const img = document.createElement('img');
+      img.decoding = 'async';
+      img.alt = '';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('failed to load ' + pageImageUrl(logicalIdx0)));
+      if (dir === 'rtl' && !DISABLE_MIRROR) img.style.transform = 'scaleX(-1)';
+      img.src = pageImageUrl(logicalIdx0);
+    });
   }
 
-  async function ensurePageRendered(pdf, logicalIdx0) {
+  async function ensurePageRendered(logicalIdx0) {
     if (logicalIdx0 < 0 || logicalIdx0 >= numPages) return;
     if (renderedPages.has(logicalIdx0)) return;
-    const canvas = await renderPageAt(pdf, logicalIdx0, RENDER_SCALE);
+    let img;
+    try {
+      img = await loadImage(logicalIdx0);
+    } catch (e) {
+      console.error('[flipbook]', e);
+      return;
+    }
     const el = pageDivs[logicalIdx0];
-    if (!el) return; // book may have been rebuilt (resize) mid-render
+    if (!el) return; // book may have been rebuilt (resize) mid-load
     el.innerHTML = '';
-    el.appendChild(canvas);
+    el.appendChild(img);
     renderedPages.add(logicalIdx0);
   }
 
@@ -412,12 +380,12 @@
     }
   }
 
-  async function prefetchForward(pdf, targetIdx, onProgress) {
+  async function prefetchForward(targetIdx, onProgress) {
     targetIdx = Math.min(targetIdx, numPages - 1);
     const total = Math.max(1, targetIdx - loadedUpTo);
     let done = 0;
     for (let i = loadedUpTo + 1; i <= targetIdx; i++) {
-      await ensurePageRendered(pdf, i);
+      await ensurePageRendered(i);
       loadedUpTo = Math.max(loadedUpTo, i);
       trimBehind(currentLogicalIdx);
       done++;
@@ -425,76 +393,47 @@
     }
   }
 
-  function maybeExtendFrontier(pdf, centerIdx) {
+  function maybeExtendFrontier(centerIdx) {
     if (centerIdx + PREFETCH_CHUNK >= loadedUpTo) {
-      prefetchForward(pdf, loadedUpTo + PREFETCH_CHUNK); // background
+      prefetchForward(loadedUpTo + PREFETCH_CHUNK); // background
     }
   }
 
-  // Renders the target page AND its immediate neighbors. Just rendering
-  // the target wasn't enough: in a two-page spread, the page sitting next
-  // to it also needs to be rendered, or it shows blank until the NEXT
-  // flip happens to render it as a side effect of ITS OWN target.
-  async function onPageChanged(pdf, logicalIdx0) {
+  async function onPageChanged(logicalIdx0) {
     currentLogicalIdx = logicalIdx0;
-    await ensurePageRendered(pdf, logicalIdx0);
-    await ensurePageRendered(pdf, logicalIdx0 - 1);
-    await ensurePageRendered(pdf, logicalIdx0 + 1);
-    maybeExtendFrontier(pdf, logicalIdx0);
+    await ensurePageRendered(logicalIdx0);
+    await ensurePageRendered(logicalIdx0 - 1);
+    await ensurePageRendered(logicalIdx0 + 1);
+    maybeExtendFrontier(logicalIdx0);
     trimBehind(logicalIdx0);
   }
 
-  // Pages are always fed to the library in natural order; "forward" is
-  // always flipNext(). Mirroring the container (see #flip-outer) is what
-  // makes this look/behave RTL — reversing the array too was tried
-  // earlier and was the actual bug, since it fought with the mirror
-  // instead of complementing it.
-  // Pre-render the target page BEFORE actually flipping to it — without
-  // this, fast repeated flipping could outrun the lazy-render pipeline and
-  // briefly show a blank page (flipNext/flipPrev switch the visible index
-  // immediately; rendering used to only start afterward).
   async function goForward() {
     const target = Math.min(numPages - 1, currentLogicalIdx + 1);
-    await ensurePageRendered(pdfDoc, target);
+    await ensurePageRendered(target);
     pageFlip.flipNext();
   }
   async function goBackward() {
     const target = Math.max(0, currentLogicalIdx - 1);
-    await ensurePageRendered(pdfDoc, target);
+    await ensurePageRendered(target);
     pageFlip.flipPrev();
   }
 
   async function jumpToLogical(logicalIdx0, animate) {
     logicalIdx0 = Math.max(0, Math.min(numPages - 1, logicalIdx0));
     const bigJump = Math.abs(logicalIdx0 - currentLogicalIdx) > 3;
-    // Render the target plus its spread neighbor before jumping — a big
-    // jump (e.g. typing "500" and hitting Enter) used to animate toward a
-    // page that had no canvas yet, which looked like it "didn't display".
-    await ensurePageRendered(pdfDoc, logicalIdx0);
-    await ensurePageRendered(pdfDoc, logicalIdx0 - 1);
-    await ensurePageRendered(pdfDoc, logicalIdx0 + 1);
+    await ensurePageRendered(logicalIdx0);
+    await ensurePageRendered(logicalIdx0 - 1);
+    await ensurePageRendered(logicalIdx0 + 1);
     if (animate === false || bigJump) pageFlip.turnToPage(logicalIdx0);
     else pageFlip.flip(logicalIdx0);
-    onPageChanged(pdfDoc, logicalIdx0);
+    onPageChanged(logicalIdx0);
   }
 
-  // ---- Custom click/swipe handling ----
-  // StPageFlip's own built-in click-to-flip and drag-to-swipe use the
-  // pointer's LOCAL position within the page element, which CSS mirroring
-  // does not affect (CSS transforms change how something is drawn on
-  // screen, not the coordinate math a script does internally) — so with
-  // the library's own gesture handling left on, clicking/swiping stayed
-  // backwards for RTL even after the visual mirror was fixed. Library
-  // gesture handling is disabled (useMouseEvents:false in buildBook) and
-  // replaced with this, which measures against the actual on-screen
-  // (mirrored) position via getBoundingClientRect, so it's correct in
-  // both directions.
   function isVisualForwardSide(clientX) {
     const rect = flipbookEl.getBoundingClientRect();
     const relX = clientX - rect.left;
     const clickedLeftHalf = relX < rect.width / 2;
-    // For an RTL book, forward is the LEFT side (and dragging left-to-right).
-    // For an LTR book, forward is the RIGHT side (and dragging right-to-left).
     return dir === 'rtl' ? clickedLeftHalf : !clickedLeftHalf;
   }
 
@@ -509,10 +448,8 @@
       const dy = e.clientY - startY;
       startX = null;
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
-        // Tap/click: which half of the book was it on?
         isVisualForwardSide(e.clientX) ? goForward() : goBackward();
       } else if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
-        // Swipe: dragged left-to-right (dx>0) or right-to-left (dx<0)?
         const draggedLeftToRight = dx > 0;
         const isForwardDrag = dir === 'rtl' ? draggedLeftToRight : !draggedLeftToRight;
         isForwardDrag ? goForward() : goBackward();
@@ -529,22 +466,10 @@
     return fresh;
   }
 
-  // Builds the flip book ONCE, using StPageFlip's own 'stretch' sizing mode
-  // instead of a fixed pixel size we compute and then have to destroy and
-  // recreate on every resize/rotation. 'stretch' mode is the library's own
-  // built-in mechanism for staying correctly sized (and switching between
-  // single-page/portrait and two-page/spread automatically) as its
-  // container resizes — after three rounds of the hand-rolled
-  // destroy-and-rebuild approach breaking in new ways on fullscreen and
-  // orientation change, this is a deliberate switch to let the library
-  // handle its own responsiveness instead of us reimplementing it.
-  async function buildBook(pdf, targetLogicalIdx) {
+  async function buildBook(targetLogicalIdx) {
     if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
     replaceFlipbookElement();
 
-    // Base aspect-correct size — 'stretch' mode uses this as its reference
-    // ratio, then fits within min/max bounds based on the container's
-    // actual size, recalculating on its own as that container resizes.
     const baseHeight = 600;
     const baseWidth = Math.round(baseHeight * pdfAspect);
 
@@ -555,11 +480,11 @@
       minWidth: 220, maxWidth: 900,
       minHeight: Math.round(220 / pdfAspect), maxHeight: Math.round(900 / pdfAspect),
       showCover: true,
-      usePortrait: true, // let the library decide single vs. spread as it resizes
-      autoSize: false,   // the book fits ITS container; the container doesn't resize to fit the book
+      usePortrait: true,
+      autoSize: false,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
-      useMouseEvents: false, // replaced with setupGestures() — see comment there
+      useMouseEvents: false,
       drawShadow: true,
       flippingTime: 700
     });
@@ -579,12 +504,12 @@
       const logicalIdx0 = e.data;
       curPageEl.textContent = logicalIdx0 + 1;
       slider.value = logicalIdx0 + 1;
-      onPageChanged(pdf, logicalIdx0);
+      onPageChanged(logicalIdx0);
     });
 
     setupGestures();
 
-    await ensurePageRendered(pdf, targetLogicalIdx);
+    await ensurePageRendered(targetLogicalIdx);
     currentLogicalIdx = targetLogicalIdx;
     if (targetLogicalIdx > 0) pageFlip.turnToPage(targetLogicalIdx);
     loadedUpTo = targetLogicalIdx;
@@ -592,16 +517,15 @@
     slider.value = targetLogicalIdx + 1;
   }
 
-  async function buildTOC(pdf) {
-    let outline;
-    try { outline = await pdf.getOutline(); } catch (e) { outline = null; }
-    if (!outline || outline.length === 0) {
-      tocBody.innerHTML = '<div class="toc-empty">This PDF has no bookmarks/outline to build a table of contents from.</div>';
+  function buildTOC() {
+    const toc = manifest.toc;
+    if (!toc || toc.length === 0) {
+      tocBody.innerHTML = '<div class="toc-empty">This book has no table of contents.</div>';
       return;
     }
     btnToc.disabled = false;
 
-    async function resolve(nodes) {
+    function build(nodes) {
       const ul = document.createElement('ul');
       ul.className = 'toc-list';
       for (const node of nodes) {
@@ -609,69 +533,49 @@
         const btn = document.createElement('button');
         btn.className = 'toc-item';
         btn.textContent = node.title || '(untitled)';
-
-        let logicalIdx0 = null;
-        try {
-          let dest = node.dest;
-          if (typeof dest === 'string') dest = await pdf.getDestination(dest);
-          if (Array.isArray(dest) && dest[0] != null) {
-            logicalIdx0 = await pdf.getPageIndex(dest[0]);
-          }
-        } catch (e) {}
-
-        if (logicalIdx0 !== null) {
-          btn.addEventListener('click', () => {
-            jumpToLogical(logicalIdx0);
-            tocOverlay.classList.remove('show');
-          });
-        } else {
-          btn.disabled = true;
-          btn.style.opacity = '.4';
-        }
+        const logicalIdx0 = Math.max(0, (node.page || 1) - 1);
+        btn.addEventListener('click', () => {
+          jumpToLogical(logicalIdx0);
+          tocOverlay.classList.remove('show');
+        });
         li.appendChild(btn);
-        if (node.items && node.items.length) li.appendChild(await resolve(node.items));
+        if (node.items && node.items.length) li.appendChild(build(node.items));
         ul.appendChild(li);
       }
       return ul;
     }
 
     tocBody.innerHTML = '';
-    tocBody.appendChild(await resolve(outline));
+    tocBody.appendChild(build(toc));
   }
 
   async function init() {
-    let pdf;
+    let manifestResp;
     try {
-      pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+      manifestResp = await fetch(`${BOOK_DIR}/manifest.json`);
+      if (!manifestResp.ok) throw new Error('manifest.json not found (' + manifestResp.status + ')');
+      manifest = await manifestResp.json();
     } catch (e) {
       loadingEl.classList.add('hide');
       emptyState.classList.add('show');
-      console.error('Could not load PDF:', e);
+      console.error('[flipbook] Could not load book manifest:', e);
       return;
     }
-    pdfDoc = pdf;
 
-    numPages = pdf.numPages;
+    numPages = manifest.numPages;
+    pdfAspect = manifest.aspect || 0.72;
     totalPagesEl.textContent = numPages;
     slider.max = numPages;
 
     const forcedDir = params.get('dir');
-    dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
+    dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : (manifest.direction || 'ltr');
     document.documentElement.setAttribute('dir', dir);
     flipOuterEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
-    loadingSub.textContent = 'جاري التحميل...';
-
-    const firstPage = await pdf.getPage(1);
-    const vp1 = firstPage.getViewport({ scale: 1 });
-    pdfAspect = vp1.width / vp1.height;
 
     loadingSub.textContent = 'جاري التحميل...';
-    await buildBook(pdf, 0);
-    // Load a real initial batch (with a genuine percentage, not just page 1)
-    // before revealing the book — the reader is looking at a fully-usable
-    // opening chunk once this finishes, not just a lone first page.
+    await buildBook(0);
     const firstBatchTarget = Math.min(INITIAL_BATCH - 1, numPages - 1);
-    await prefetchForward(pdf, firstBatchTarget, (done, total) => {
+    await prefetchForward(firstBatchTarget, (done, total) => {
       const pct = Math.round((done / total) * 100);
       progressBar.style.width = pct + '%';
       loadingSub.textContent = `جاري التحميل... ${pct}٪`;
@@ -681,9 +585,15 @@
     document.getElementById('btn-next').onclick = goForward;
     document.getElementById('btn-prev').onclick = goBackward;
 
+    // Download only appears if the converted book folder includes the
+    // original PDF (manifest.pdf) — there's no single file to download
+    // when the reader itself is just displaying a sequence of images.
     const downloadLink = document.getElementById('btn-download');
-    downloadLink.href = PDF_URL;
-    downloadLink.download = PDF_URL.split('/').pop().split('?')[0] || 'book.pdf';
+    if (manifest.pdf) {
+      downloadLink.href = `${BOOK_DIR}/${manifest.pdf}`;
+      downloadLink.download = manifest.pdf;
+      downloadLink.style.display = '';
+    }
 
     slider.addEventListener('input', () => {
       jumpToLogical(parseInt(slider.value, 10) - 1);
@@ -709,58 +619,35 @@
     });
     pageInput.addEventListener('blur', commitPageInput);
 
-    // Right/left arrow keys always mean "forward"/"back" in reading order,
-    // which is the OPPOSITE screen direction for an RTL book.
-    // preventDefault matters here: the page slider is a native <input
-    // type="range">, which responds to arrow keys on its own when
-    // focused — without this, a single keypress could both move the
-    // slider (firing jumpToLogical via its own 'input' listener) AND
-    // trigger goForward/goBackward here, moving two pages at once.
     window.addEventListener('keydown', (e) => {
       if (document.activeElement === pageInput) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); dir === 'rtl' ? goBackward() : goForward(); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); dir === 'rtl' ? goForward() : goBackward(); }
     });
 
-    // Mobile browsers can silently discard already-rendered canvas content
-    // while a tab is backgrounded (screen lock, app-switching) to save
-    // memory — the page has no way to know this happened on its own. When
-    // the tab becomes visible again, treat everything as unrendered and
-    // immediately redraw what's currently on screen; the rest self-heals
-    // lazily as the reader keeps navigating, same as any other lazy page.
+    // Images are much cheaper to reload than re-rasterizing a PDF page, but
+    // mobile browsers can still drop offscreen/background image data under
+    // memory pressure (screen lock, app-switching) — refresh what's on
+    // screen when the tab becomes visible again, just in case.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && pdfDoc) {
+      if (document.visibilityState === 'visible' && manifest) {
         renderedPages.clear();
         loadedUpTo = -1;
-        onPageChanged(pdfDoc, currentLogicalIdx);
+        onPageChanged(currentLogicalIdx);
       }
     });
 
-    // Rebuilding the book (destroy + recreate) is what breaks it if
-    // triggered at the wrong moment — that's exactly what was happening on
-    // fullscreen enter/exit (F11 or the button), which resizes the
-    // viewport but does NOT change portrait/landscape. So: only rebuild
-    // when the orientation genuinely flips (actual device rotation).
-    // Fullscreen and ordinary window resizing now just leave the existing
-    // book as-is rather than risk breaking it — it won't perfectly re-fill
-    // the new space, but it also won't disappear.
-    // Rebuilding the book (destroy + recreate) is what breaks it if
-    // triggered at the wrong moment — that's exactly what was happening on
-    // fullscreen enter/exit (F11 or the button), which resizes the
-    // 'stretch' mode (see buildBook) is supposed to handle resizing and
-    // portrait/landscape switching on its own, without us destroying and
-    // recreating anything. This is a safety net in case that ever doesn't
-    // happen correctly on some device/browser: after a resize settles,
-    // check whether the book still has a real, non-zero size, and only
-    // rebuild if it doesn't — rebuilding unconditionally on every resize
-    // is exactly the pattern that kept breaking fullscreen and rotation in
-    // earlier versions.
+    // 'stretch' mode (see buildBook) handles resizing and portrait/landscape
+    // switching on its own. This is a safety net in case that ever doesn't
+    // happen correctly on some device/browser — only rebuilds if the book
+    // is ever found with zero size, rather than rebuilding on every resize
+    // (which is what previously broke fullscreen and rotation).
     let resizeTimer;
     async function robustRebuild(attempt) {
       attempt = attempt || 1;
       try {
-        await buildBook(pdfDoc, currentLogicalIdx);
-        prefetchForward(pdfDoc, Math.min(currentLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
+        await buildBook(currentLogicalIdx);
+        prefetchForward(Math.min(currentLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
         if (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight) {
           throw new Error('book has zero size after rebuild');
         }
@@ -777,21 +664,17 @@
     }
     window.addEventListener('resize', () => checkStillHealthy(400));
     window.addEventListener('orientationchange', () => checkStillHealthy(600));
-
-    // Last-resort manual recovery: if the book area is ever tapped while
-    // it has no visible content, rebuild once more right away.
     stageEl.addEventListener('pointerup', () => {
-      if (pdfDoc && (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight)) robustRebuild();
+      if (manifest && (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight)) robustRebuild();
     });
 
-    buildTOC(pdf);
+    buildTOC();
   }
 
   // Many mobile browsers — iOS Safari in particular — don't support the
   // Fullscreen API for arbitrary page content (only for <video>). Rather
   // than show a button that silently does nothing there, hide it when
-  // unsupported. Vendor-prefixed fallbacks cover older/other browsers that
-  // support it under a different method name.
+  // unsupported.
   const btnFullscreen = document.getElementById('btn-fullscreen');
   const docEl = document.documentElement;
   const requestFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
