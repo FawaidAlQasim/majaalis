@@ -92,7 +92,13 @@
     backdrop-filter:blur(4px);
   }
   .icon-btn:hover{ background:var(--gold); color:var(--ink-green-dark); border-color:var(--gold); }
+  .icon-btn:disabled{ opacity:.35; cursor:default; }
+  .icon-btn:disabled:hover{ background:rgba(15,61,46,.55); color:var(--gold-bright); border-color:rgba(184,147,75,.4); }
   .icon-btn svg{ width:17px; height:17px; }
+
+  /* Mirror the prev/next chevrons in RTL so they point toward book-start / book-forward correctly */
+  html[dir="rtl"] #btn-prev svg,
+  html[dir="rtl"] #btn-next svg{ transform:scaleX(-1); }
 
   /* ---------- Book stage ---------- */
   #stage{
@@ -104,6 +110,11 @@
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
     border-radius:2px;
   }
+  /* RTL binding: mirror the whole book so the flip motion runs the opposite way,
+     then un-mirror each page's own content so the rendered PDF page reads normally. */
+  #flipbook.mirror-book{ transform:scaleX(-1); }
+  #flipbook.mirror-book .page{ transform:scaleX(-1); }
+
   .page{
     background:var(--parchment);
     overflow:hidden;
@@ -114,11 +125,6 @@
     background:var(--parchment);
     display:flex; align-items:center; justify-content:center;
     color:var(--sage); font-size:.75rem; font-family:'Inter',sans-serif;
-  }
-  .page-shadow-spine{
-    position:absolute; top:0; bottom:0; width:24px;
-    background:linear-gradient(to right, rgba(0,0,0,.18), transparent);
-    pointer-events:none;
   }
 
   /* ---------- Bottom bar ---------- */
@@ -141,6 +147,37 @@
     -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
     background:var(--gold-bright); cursor:pointer; box-shadow:0 0 0 3px rgba(216,184,114,.2);
   }
+
+  /* ---------- Table of contents panel ---------- */
+  #toc-overlay{
+    position:fixed; inset:0; z-index:30;
+    background:rgba(4,12,9,.55);
+    display:none;
+    backdrop-filter:blur(2px);
+  }
+  #toc-overlay.show{ display:block; }
+  #toc-panel{
+    position:fixed; top:0; bottom:0; width:min(340px, 84vw);
+    background:linear-gradient(180deg, #0d3527 0%, #081f17 100%);
+    border-inline-start:1px solid rgba(184,147,75,.3);
+    box-shadow:-30px 0 60px rgba(0,0,0,.4);
+    padding:20px 18px 20px;
+    overflow-y:auto;
+    inset-inline-end:0;
+  }
+  #toc-panel h2{
+    font-family:'Rakkas', serif; color:var(--gold-bright); font-size:1.15rem;
+    margin:4px 0 16px; padding-bottom:12px; border-bottom:1px solid rgba(184,147,75,.25);
+  }
+  .toc-empty{ color:var(--sage); font-size:.85rem; font-family:'Inter',sans-serif; direction:ltr; text-align:start; }
+  .toc-list{ list-style:none; margin:0; padding:0; }
+  .toc-list ul{ list-style:none; padding-inline-start:16px; margin:2px 0 2px; }
+  .toc-item{
+    display:block; width:100%; text-align:start; background:none; border:none;
+    color:var(--parchment); font-family:'Amiri', serif; font-size:.95rem;
+    padding:7px 4px; cursor:pointer; border-radius:4px; line-height:1.4;
+  }
+  .toc-item:hover{ background:rgba(184,147,75,.15); color:var(--gold-bright); }
 
   /* ---------- No-file state ---------- */
   #empty-state{
@@ -172,7 +209,7 @@
 <div id="topbar">
   <div id="book-title">اسم الكتاب<span>Interactive Reader</span></div>
   <div style="display:flex; gap:8px;">
-    <button class="icon-btn" id="btn-toc" title="Table of contents">
+    <button class="icon-btn" id="btn-toc" title="Table of contents" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
     </button>
     <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
@@ -188,6 +225,13 @@
 <div id="empty-state">
   <h1>لا يوجد كتاب محمّل — No book loaded</h1>
   <p>Place your PDF next to this file and name it <code>book.pdf</code>, or add <code>?pdf=yourfile.pdf</code> to the URL. See README.md for full GitHub Pages deployment steps.</p>
+</div>
+
+<div id="toc-overlay">
+  <div id="toc-panel">
+    <h2>الفهرس — Contents</h2>
+    <div id="toc-body"><div class="toc-empty">Loading…</div></div>
+  </div>
 </div>
 
 <div id="bottombar">
@@ -208,10 +252,10 @@
 (function(){
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-  // ---- config ----
   const params = new URLSearchParams(location.search);
   const PDF_URL = params.get('pdf') || 'book.pdf';
-  const RENDER_SCALE = 2.0; // raise for crisper pages, costs more memory/time
+  const RENDER_SCALE = 2.0;
+  const DISABLE_MIRROR = params.get('mirror') === '0';
 
   const loadingEl = document.getElementById('loading');
   const progressBar = document.getElementById('progress-bar');
@@ -221,46 +265,40 @@
   const curPageEl = document.getElementById('cur-page');
   const totalPagesEl = document.getElementById('total-pages');
   const slider = document.getElementById('page-slider');
+  const tocOverlay = document.getElementById('toc-overlay');
+  const tocBody = document.getElementById('toc-body');
+  const btnToc = document.getElementById('btn-toc');
 
   let pageFlip = null;
+  let numPages = 0;
+  let dir = 'ltr';
 
-  const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g; // Hebrew, Arabic, Arabic Presentation Forms
+  const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g;
   const LTR_SCRIPT = /[A-Za-z]/g;
   const RTL_LANGS = ['ar','he','fa','ur','yi','ps','sd','ug'];
 
-  // Figures out reading/binding direction for a PDF that doesn't come with
-  // an explicit ?dir= override. Tries, in order of reliability:
-  //   1. The PDF's own /ViewerPreferences/Direction flag (rare, but authoritative)
-  //   2. Document language metadata (dc:language / Lang)
-  //   3. Sampling actual text on the first few pages and counting script usage
-  // Falls back to 'ltr' if the PDF has no text layer at all (pure image scans),
-  // since that case can't be auto-detected — use ?dir=rtl manually for those.
   async function detectDirection(pdf) {
     try {
       const vp = await pdf.getViewerPreferences?.();
       if (vp && vp.Direction) {
         return vp.Direction === 'R2L' ? 'rtl' : 'ltr';
       }
-    } catch (e) { /* not present, keep trying */ }
+    } catch (e) {}
 
     try {
-      const meta = await pdf.getMetadata();
-      const lang = (meta?.info?.Lang || '').toLowerCase();
-      if (RTL_LANGS.some(l => lang.startsWith(l))) return 'rtl';
-    } catch (e) { /* no metadata */ }
-
-    try {
-      let rtlCount = 0, ltrCount = 0;
+      let rtlCount = 0, ltrCount = 0, docLang = null;
       const pagesToSample = Math.min(pdf.numPages, 3);
       for (let i = 1; i <= pagesToSample; i++) {
         const page = await pdf.getPage(i);
         const tc = await page.getTextContent();
+        if (!docLang && tc.lang) docLang = tc.lang.toLowerCase();
         const text = tc.items.map(it => it.str).join(' ');
         rtlCount += (text.match(RTL_SCRIPT) || []).length;
         ltrCount += (text.match(LTR_SCRIPT) || []).length;
       }
+      if (docLang && RTL_LANGS.some(l => docLang.startsWith(l))) return 'rtl';
       if (rtlCount + ltrCount > 0) return rtlCount > ltrCount ? 'rtl' : 'ltr';
-    } catch (e) { /* no text layer — image-only scan */ }
+    } catch (e) {}
 
     return 'ltr';
   }
@@ -276,12 +314,60 @@
     return canvas;
   }
 
-  function buildPageDiv(canvas) {
-    const div = document.createElement('div');
-    div.className = 'page';
-    div.style.position = 'relative';
-    div.appendChild(canvas);
-    return div;
+  function logicalToLibraryIndex(logicalIdx0) {
+    return dir === 'rtl' ? (numPages - 1 - logicalIdx0) : logicalIdx0;
+  }
+  function libraryToLogicalIndex(libraryIdx0) {
+    return dir === 'rtl' ? (numPages - 1 - libraryIdx0) : libraryIdx0;
+  }
+  function goForward() { dir === 'rtl' ? pageFlip.flipPrev() : pageFlip.flipNext(); }
+  function goBackward() { dir === 'rtl' ? pageFlip.flipNext() : pageFlip.flipPrev(); }
+
+  async function buildTOC(pdf) {
+    let outline;
+    try { outline = await pdf.getOutline(); } catch (e) { outline = null; }
+    if (!outline || outline.length === 0) {
+      tocBody.innerHTML = '<div class="toc-empty">This PDF has no bookmarks/outline to build a table of contents from.</div>';
+      return;
+    }
+    btnToc.disabled = false;
+
+    async function resolve(nodes) {
+      const ul = document.createElement('ul');
+      ul.className = 'toc-list';
+      for (const node of nodes) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.className = 'toc-item';
+        btn.textContent = node.title || '(untitled)';
+
+        let logicalIdx0 = null;
+        try {
+          let dest = node.dest;
+          if (typeof dest === 'string') dest = await pdf.getDestination(dest);
+          if (Array.isArray(dest) && dest[0] != null) {
+            logicalIdx0 = await pdf.getPageIndex(dest[0]);
+          }
+        } catch (e) {}
+
+        if (logicalIdx0 !== null) {
+          btn.addEventListener('click', () => {
+            pageFlip.flip(logicalToLibraryIndex(logicalIdx0));
+            tocOverlay.classList.remove('show');
+          });
+        } else {
+          btn.disabled = true;
+          btn.style.opacity = '.4';
+        }
+        li.appendChild(btn);
+        if (node.items && node.items.length) li.appendChild(await resolve(node.items));
+        ul.appendChild(li);
+      }
+      return ul;
+    }
+
+    tocBody.innerHTML = '';
+    tocBody.appendChild(await resolve(outline));
   }
 
   async function init() {
@@ -295,17 +381,16 @@
       return;
     }
 
-    const numPages = pdf.numPages;
+    numPages = pdf.numPages;
     totalPagesEl.textContent = numPages;
     slider.max = numPages;
 
-    // Direction: explicit ?dir= wins, otherwise auto-detect from the PDF itself
     const forcedDir = params.get('dir');
-    const dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
+    dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
     document.documentElement.setAttribute('dir', dir);
+    if (dir === 'rtl' && !DISABLE_MIRROR) flipbookEl.classList.add('mirror-book');
     loadingSub.textContent = `Detected ${dir === 'rtl' ? 'right-to-left' : 'left-to-right'} binding…`;
 
-    // Use first page's aspect ratio to size the book
     const firstPage = await pdf.getPage(1);
     const vp1 = firstPage.getViewport({ scale: 1 });
     const aspect = vp1.width / vp1.height;
@@ -326,7 +411,7 @@
       usePortrait: window.innerWidth < 760,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
-      direction: dir,         // auto-detected above, or forced via ?dir=rtl / ?dir=ltr
+      startPage: dir === 'rtl' ? numPages - 1 : 0,
       drawShadow: true,
       flippingTime: 700
     });
@@ -338,13 +423,12 @@
       placeholder.innerHTML = '<div class="page-loading">…</div>';
       pageDivs.push(placeholder);
     }
-    pageFlip.loadFromHTML(pageDivs);
+    const orderedDivs = dir === 'rtl' ? [...pageDivs].reverse() : pageDivs;
+    pageFlip.loadFromHTML(orderedDivs);
 
-    // Render pages progressively: first page immediately, rest in background
     for (let i = 1; i <= numPages; i++) {
       const canvas = await renderPageToCanvas(pdf, i);
-      const target = pageFlip.getPageCollection().getPages()[i - 1];
-      const el = target.getElement();
+      const el = pageDivs[i - 1];
       el.innerHTML = '';
       el.appendChild(canvas);
 
@@ -352,38 +436,38 @@
       progressBar.style.width = pct + '%';
       loadingSub.textContent = `Rendering page ${i} of ${numPages}…`;
 
-      if (i === 1) {
-        loadingEl.classList.add('hide');
-      }
+      if (i === 1) loadingEl.classList.add('hide');
     }
 
     pageFlip.on('flip', (e) => {
-      curPageEl.textContent = e.data + 1;
-      slider.value = e.data + 1;
+      const logical = libraryToLogicalIndex(e.data) + 1;
+      curPageEl.textContent = logical;
+      slider.value = logical;
     });
 
-    document.getElementById('btn-next').onclick = () => pageFlip.flipNext();
-    document.getElementById('btn-prev').onclick = () => pageFlip.flipPrev();
+    document.getElementById('btn-next').onclick = goForward;
+    document.getElementById('btn-prev').onclick = goBackward;
     slider.addEventListener('input', () => {
-      pageFlip.flip(parseInt(slider.value, 10) - 1);
+      const logicalIdx0 = parseInt(slider.value, 10) - 1;
+      pageFlip.flip(logicalToLibraryIndex(logicalIdx0));
     });
 
-    // Arrow keys always mean "forward"/"back" visually, regardless of binding direction
-    const forwardKey = dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
-    const backKey    = dir === 'rtl' ? 'ArrowRight' : 'ArrowLeft';
     window.addEventListener('keydown', (e) => {
-      if (e.key === forwardKey) pageFlip.flipNext();
-      if (e.key === backKey) pageFlip.flipPrev();
+      if (e.key === 'ArrowRight') { dir === 'rtl' ? goForward() : goBackward(); }
+      if (e.key === 'ArrowLeft')  { dir === 'rtl' ? goBackward() : goForward(); }
     });
+
+    buildTOC(pdf);
   }
 
   document.getElementById('btn-fullscreen').onclick = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else document.exitFullscreen();
   };
-  document.getElementById('btn-toc').onclick = () => {
-    alert('Add your own table-of-contents panel here — see README.md for a starting point.');
-  };
+  btnToc.addEventListener('click', () => tocOverlay.classList.add('show'));
+  tocOverlay.addEventListener('click', (e) => {
+    if (e.target === tocOverlay) tocOverlay.classList.remove('show');
+  });
 
   init();
 })();
