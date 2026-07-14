@@ -311,17 +311,15 @@
 
   const renderedPages = new Set(); // logical indices currently holding a loaded image
 
-  // ---- Lazy loading strategy for very large books ----
-  // Load the first 50 pages up front (page 1 shows the instant it's ready,
-  // the rest of that batch loads in the background), then keep buffering
-  // 25 pages ahead of wherever the reader currently is. Pages far BEHIND
-  // the current position are evicted back to placeholders to keep memory
-  // bounded even after reading hundreds of pages forward. This matters
-  // less than it did for live PDF rendering (loading an <img> is much
-  // cheaper than rasterizing a PDF page), but is kept as a safety margin
-  // for books with hundreds+ of pages on low-memory mobile devices.
-  const INITIAL_BATCH = 50;
-  const PREFETCH_CHUNK = 25;
+  // ---- Lazy loading strategy ----
+  // Loading an <img> is much cheaper than rasterizing a PDF page, so this
+  // can afford to be far lighter than it needed to be for live PDF
+  // rendering: show page 1 almost immediately, load a small initial batch
+  // for smooth early flipping, then keep buffering ahead as the reader
+  // progresses. Pages far BEHIND the current position are evicted back to
+  // placeholders to keep memory bounded on very long books.
+  const INITIAL_BATCH = 8;
+  const PREFETCH_CHUNK = 20;
   const KEEP_BEHIND = 150;
   const HARD_CAP = 250;
   let loadedUpTo = -1;
@@ -466,22 +464,45 @@
     return fresh;
   }
 
+  // Fits the book (single page in portrait, two-page spread in landscape)
+  // into the available space using "contain" aspect-fit math: picks
+  // whichever dimension actually constrains it. ('stretch' mode was tried
+  // here instead of computing this ourselves, since it's the library's own
+  // built-in responsive mechanism — but it turned out to just sit at its
+  // minimum size rather than actually filling the container, confirmed
+  // visually. Back to computing exact pixel dimensions, which is what
+  // correctly filled the screen and switched single/spread before.)
+  function computeLayout() {
+    const availW = Math.max(240, window.innerWidth - 24);
+    const availH = Math.max(180, window.innerHeight - 170);
+    const portrait = window.innerWidth < window.innerHeight;
+    const spreadFactor = portrait ? 1 : 2;
+    const targetAspect = pdfAspect * spreadFactor;
+
+    let spreadW, spreadH;
+    if (availW / availH > targetAspect) {
+      spreadH = availH;
+      spreadW = spreadH * targetAspect;
+    } else {
+      spreadW = availW;
+      spreadH = spreadW / targetAspect;
+    }
+    return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH), portrait };
+  }
+
   async function buildBook(targetLogicalIdx) {
     if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
     replaceFlipbookElement();
 
-    const baseHeight = 600;
-    const baseWidth = Math.round(baseHeight * pdfAspect);
+    const { width, height, portrait } = computeLayout();
 
     pageFlip = new St.PageFlip(flipbookEl, {
-      width: baseWidth,
-      height: baseHeight,
-      size: 'stretch',
-      minWidth: 220, maxWidth: 900,
-      minHeight: Math.round(220 / pdfAspect), maxHeight: Math.round(900 / pdfAspect),
+      width, height,
+      size: 'fixed',
+      minWidth: 200, maxWidth: 2000,
+      minHeight: 250, maxHeight: 2000,
       showCover: true,
-      usePortrait: true,
-      autoSize: false,
+      usePortrait: portrait,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
       useMouseEvents: false,
@@ -637,11 +658,12 @@
       }
     });
 
-    // 'stretch' mode (see buildBook) handles resizing and portrait/landscape
-    // switching on its own. This is a safety net in case that ever doesn't
-    // happen correctly on some device/browser — only rebuilds if the book
-    // is ever found with zero size, rather than rebuilding on every resize
-    // (which is what previously broke fullscreen and rotation).
+    // 'fixed' size mode (see buildBook/computeLayout) gives correct sizing
+    // and single/spread switching, but — unlike 'stretch' — has to be
+    // explicitly rebuilt to respond to a resize or rotation at all. The
+    // rebuild itself is wrapped with retries and a zero-size check so a
+    // transient failure (e.g. triggered mid-rotation before dimensions
+    // settle) doesn't leave the book broken.
     let resizeTimer;
     async function robustRebuild(attempt) {
       attempt = attempt || 1;
@@ -656,14 +678,17 @@
         if (attempt < 5) setTimeout(() => robustRebuild(attempt + 1), 300 * attempt);
       }
     }
-    function checkStillHealthy(delay) {
+    function scheduleRebuild(delay) {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        if (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight) robustRebuild();
-      }, delay);
+      resizeTimer = setTimeout(() => robustRebuild(), delay);
     }
-    window.addEventListener('resize', () => checkStillHealthy(400));
-    window.addEventListener('orientationchange', () => checkStillHealthy(600));
+    window.addEventListener('resize', () => scheduleRebuild(400));
+    // orientationchange on iOS/Android can fire before innerWidth/innerHeight
+    // have actually settled to their new values — a longer delay here
+    // reduces the chance of rebuilding with stale (pre-rotation) dimensions.
+    window.addEventListener('orientationchange', () => scheduleRebuild(600));
+    // Last-resort manual recovery: if the book area is ever tapped while
+    // it has no visible content, rebuild once more right away.
     stageEl.addEventListener('pointerup', () => {
       if (manifest && (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight)) robustRebuild();
     });
