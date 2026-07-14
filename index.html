@@ -480,14 +480,23 @@
     trimBehind(currentLogicalIdx);
   }
 
-  function logicalToLibraryIndex(logicalIdx0) {
-    return dir === 'rtl' ? (numPages - 1 - logicalIdx0) : logicalIdx0;
-  }
-  function libraryToLogicalIndex(libraryIdx0) {
-    return dir === 'rtl' ? (numPages - 1 - libraryIdx0) : libraryIdx0;
-  }
-  function goForward() { dir === 'rtl' ? pageFlip.flipPrev() : pageFlip.flipNext(); }
-  function goBackward() { dir === 'rtl' ? pageFlip.flipNext() : pageFlip.flipPrev(); }
+  // NOTE on the RTL scheme (after two failed attempts, here's the corrected
+  // reasoning): the flip library's page index always progresses in the
+  // SAME order you feed it, regardless of any CSS mirroring — flipNext()
+  // always means "go to the next array index." Mirroring the container
+  // only changes how that transition LOOKS (which side pages accumulate
+  // on, which way the fold curls); it does not require reordering the
+  // pages you feed in. Reversing the array was unnecessary and is the most
+  // likely cause of the binding still being wrong after the CSS mirror was
+  // confirmed to be applying correctly. So: pages are now fed in their
+  // natural order for both directions, and "forward" is always flipNext().
+  // Only the keyboard-arrow mapping (further down) still depends on `dir`,
+  // since that's genuinely about which physical key means "forward" once
+  // the visual is mirrored.
+  function logicalToLibraryIndex(logicalIdx0) { return logicalIdx0; }
+  function libraryToLogicalIndex(libraryIdx0) { return libraryIdx0; }
+  function goForward() { pageFlip.flipNext(); }
+  function goBackward() { pageFlip.flipPrev(); }
 
   // Used by the TOC, the page slider, and the editable page number to jump
   // straight to a page: makes sure that page is actually rendered
@@ -590,7 +599,6 @@
       usePortrait: window.innerWidth < 760,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
-      startPage: dir === 'rtl' ? numPages - 1 : 0,
       drawShadow: true,
       flippingTime: 700
     });
@@ -606,8 +614,9 @@
       placeholder.innerHTML = '<div class="page-loading">…</div>';
       pageDivs.push(placeholder);
     }
-    const orderedDivs = dir === 'rtl' ? [...pageDivs].reverse() : pageDivs;
-    pageFlip.loadFromHTML(orderedDivs);
+    // Pages are always loaded in natural order — see the note above
+    // logicalToLibraryIndex for why reversing them was wrong.
+    pageFlip.loadFromHTML(pageDivs);
 
     loadingSub.textContent = 'Rendering page 1…';
     await ensurePageRendered(pdf, 0);
