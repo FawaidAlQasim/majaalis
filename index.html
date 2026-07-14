@@ -415,9 +415,15 @@
     }
   }
 
+  // Renders the target page AND its immediate neighbors. Just rendering
+  // the target wasn't enough: in a two-page spread, the page sitting next
+  // to it also needs to be rendered, or it shows blank until the NEXT
+  // flip happens to render it as a side effect of ITS OWN target.
   async function onPageChanged(pdf, logicalIdx0) {
     currentLogicalIdx = logicalIdx0;
     await ensurePageRendered(pdf, logicalIdx0);
+    await ensurePageRendered(pdf, logicalIdx0 - 1);
+    await ensurePageRendered(pdf, logicalIdx0 + 1);
     maybeExtendFrontier(pdf, logicalIdx0);
     trimBehind(logicalIdx0);
   }
@@ -692,10 +698,29 @@
 
     // Right/left arrow keys always mean "forward"/"back" in reading order,
     // which is the OPPOSITE screen direction for an RTL book.
+    // preventDefault matters here: the page slider is a native <input
+    // type="range">, which responds to arrow keys on its own when
+    // focused — without this, a single keypress could both move the
+    // slider (firing jumpToLogical via its own 'input' listener) AND
+    // trigger goForward/goBackward here, moving two pages at once.
     window.addEventListener('keydown', (e) => {
       if (document.activeElement === pageInput) return;
-      if (e.key === 'ArrowRight') { dir === 'rtl' ? goBackward() : goForward(); }
-      if (e.key === 'ArrowLeft')  { dir === 'rtl' ? goForward() : goBackward(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); dir === 'rtl' ? goBackward() : goForward(); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); dir === 'rtl' ? goForward() : goBackward(); }
+    });
+
+    // Mobile browsers can silently discard already-rendered canvas content
+    // while a tab is backgrounded (screen lock, app-switching) to save
+    // memory — the page has no way to know this happened on its own. When
+    // the tab becomes visible again, treat everything as unrendered and
+    // immediately redraw what's currently on screen; the rest self-heals
+    // lazily as the reader keeps navigating, same as any other lazy page.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && pdfDoc) {
+        renderedPages.clear();
+        loadedUpTo = -1;
+        onPageChanged(pdfDoc, currentLogicalIdx);
+      }
     });
 
     let resizeTimer;
