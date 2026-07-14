@@ -319,8 +319,14 @@
   // bounded even after reading hundreds of pages forward.
   const INITIAL_BATCH = 50;
   const PREFETCH_CHUNK = 25;
-  const KEEP_BEHIND = 60;
-  const HARD_CAP = 140;
+  // How many rendered pages to keep behind the current position before
+  // evicting them. Raised generously so pages "stay loaded" for normal
+  // reading sessions, but NOT unlimited — fully caching a 1124-page book
+  // at retina resolution would be several GB of canvas memory, which
+  // mobile Safari in particular will kill the tab over. This is a safety
+  // net, not a hard limit you're expected to hit in ordinary use.
+  const KEEP_BEHIND = 150;
+  const HARD_CAP = 200;
   let loadedUpTo = -1;
 
   const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g;
@@ -421,13 +427,31 @@
   // makes this look/behave RTL — reversing the array too was tried
   // earlier and was the actual bug, since it fought with the mirror
   // instead of complementing it.
-  function goForward() { pageFlip.flipNext(); }
-  function goBackward() { pageFlip.flipPrev(); }
+  // Pre-render the target page BEFORE actually flipping to it — without
+  // this, fast repeated flipping could outrun the lazy-render pipeline and
+  // briefly show a blank page (flipNext/flipPrev switch the visible index
+  // immediately; rendering used to only start afterward).
+  async function goForward() {
+    const target = Math.min(numPages - 1, currentLogicalIdx + 1);
+    await ensurePageRendered(pdfDoc, target);
+    pageFlip.flipNext();
+  }
+  async function goBackward() {
+    const target = Math.max(0, currentLogicalIdx - 1);
+    await ensurePageRendered(pdfDoc, target);
+    pageFlip.flipPrev();
+  }
 
   async function jumpToLogical(logicalIdx0, animate) {
     logicalIdx0 = Math.max(0, Math.min(numPages - 1, logicalIdx0));
+    const bigJump = Math.abs(logicalIdx0 - currentLogicalIdx) > 3;
+    // Render the target plus its spread neighbor before jumping — a big
+    // jump (e.g. typing "500" and hitting Enter) used to animate toward a
+    // page that had no canvas yet, which looked like it "didn't display".
     await ensurePageRendered(pdfDoc, logicalIdx0);
-    if (animate === false) pageFlip.turnToPage(logicalIdx0);
+    await ensurePageRendered(pdfDoc, logicalIdx0 - 1);
+    await ensurePageRendered(pdfDoc, logicalIdx0 + 1);
+    if (animate === false || bigJump) pageFlip.turnToPage(logicalIdx0);
     else pageFlip.flip(logicalIdx0);
     onPageChanged(pdfDoc, logicalIdx0);
   }
@@ -477,17 +501,28 @@
 
   // ---- Layout: fills available screen space, single page in portrait,
   // two-page spread in landscape — on both mobile and desktop. ----
+  // Fits the book (single page in portrait, two-page spread in landscape)
+  // into the available space using proper "contain" aspect-fit math: picks
+  // whichever dimension actually constrains it, rather than always
+  // assuming height does. Always assuming height was the constraint is
+  // what caused visible white stripes on a short, wide landscape phone
+  // screen — there, available WIDTH is what should be filled.
   function computeLayout() {
     const availW = Math.max(240, window.innerWidth - 24);
-    const availH = Math.max(300, window.innerHeight - 170);
+    const availH = Math.max(180, window.innerHeight - 170);
     const portrait = window.innerWidth < window.innerHeight;
-    let pageH = availH, pageW = pageH * pdfAspect;
-    if (portrait) {
-      if (pageW > availW) { pageW = availW; pageH = pageW / pdfAspect; }
+    const spreadFactor = portrait ? 1 : 2;
+    const targetAspect = pdfAspect * spreadFactor; // width:height of the whole book area
+
+    let spreadW, spreadH;
+    if (availW / availH > targetAspect) {
+      spreadH = availH;
+      spreadW = spreadH * targetAspect;
     } else {
-      if (pageW * 2 > availW) { pageW = availW / 2; pageH = pageW / pdfAspect; }
+      spreadW = availW;
+      spreadH = spreadW / targetAspect;
     }
-    return { width: Math.round(pageW), height: Math.round(pageH), portrait };
+    return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH), portrait };
   }
 
   function replaceFlipbookElement() {
@@ -664,14 +699,33 @@
     });
 
     let resizeTimer;
-    function onResizeLike() {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        buildBook(pdfDoc, currentLogicalIdx, false);
-      }, 250);
+    async function rebuildForNewLayout() {
+      try {
+        await buildBook(pdfDoc, currentLogicalIdx, false);
+      } catch (e) {
+        // If a rebuild fails (e.g. triggered mid-transition with
+        // still-settling viewport dimensions), retry once shortly after
+        // rather than leaving the book blank.
+        console.error('[flipbook] rebuild failed, retrying:', e);
+        setTimeout(() => buildBook(pdfDoc, currentLogicalIdx, false).catch((e2) => console.error('[flipbook] retry also failed:', e2)), 400);
+      }
     }
-    window.addEventListener('resize', onResizeLike);
-    window.addEventListener('orientationchange', onResizeLike);
+    function scheduleRebuild(delay) {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(rebuildForNewLayout, delay);
+    }
+    // Plain resize (covers window resize, F11 fullscreen, and most
+    // fullscreen-API transitions too).
+    window.addEventListener('resize', () => scheduleRebuild(400));
+    // orientationchange on iOS in particular can fire before
+    // innerWidth/innerHeight have actually settled to their new values —
+    // a longer delay here reduces the chance of rebuilding with stale
+    // (pre-rotation) dimensions.
+    window.addEventListener('orientationchange', () => scheduleRebuild(500));
+    // Explicit fullscreenchange listener as a second, redundant path for
+    // browsers/devices where entering/exiting fullscreen doesn't reliably
+    // fire a plain resize event.
+    document.addEventListener('fullscreenchange', () => scheduleRebuild(400));
 
     buildTOC(pdf);
   }
