@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>كتاب — قارئ تفاعلي</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Rakkas&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink-green:      #0f3d2e;
+    --ink-green-dark: #081f17;
+    --gold:           #b8934b;
+    --gold-bright:    #d8b872;
+    --parchment:      #f3ecdd;
+    --parchment-dark: #e6dcc4;
+    --charcoal:       #262220;
+    --sage:           #6b8f7c;
+    --shadow-deep:    rgba(8,31,23,0.55);
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:
+      radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
+    font-family:'Inter', sans-serif;
+    color:var(--parchment);
+    overflow:hidden;
+  }
+
+  /* ---------- Loading screen ---------- */
+  #loading{
+    position:fixed; inset:0; z-index:50;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
+    transition:opacity .6s ease;
+  }
+  #loading.hide{ opacity:0; pointer-events:none; }
+  .ornament{
+    width:56px; height:56px; margin-bottom:22px;
+    border:2px solid var(--gold);
+    border-radius:50%;
+    position:relative;
+    animation:spin 2.4s linear infinite;
+  }
+  .ornament::before, .ornament::after{
+    content:''; position:absolute; inset:8px;
+    border:1px solid var(--gold-bright);
+    border-radius:50%;
+    opacity:.6;
+  }
+  .ornament::after{ inset:16px; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  #loading-text{ font-family:'Amiri', serif; font-size:1.05rem; letter-spacing:.04em; color:var(--gold-bright); }
+  #loading-sub{ margin-top:6px; font-size:.8rem; color:var(--sage); font-family:'Inter',sans-serif; }
+  #progress-track{
+    width:220px; height:2px; margin-top:20px;
+    background:rgba(184,147,75,.25); border-radius:2px; overflow:hidden;
+  }
+  #progress-bar{ width:0%; height:100%; background:var(--gold-bright); transition:width .2s ease; }
+
+  /* ---------- Top bar ---------- */
+  #topbar{
+    position:fixed; top:0; left:0; right:0; z-index:20;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 22px;
+    background:linear-gradient(to bottom, rgba(7,20,16,.85), transparent);
+    pointer-events:none;
+  }
+  #topbar > *{ pointer-events:auto; }
+  #book-title{
+    font-family:'Rakkas', serif; font-size:1.1rem; color:var(--gold-bright);
+    letter-spacing:.02em;
+    text-shadow:0 1px 6px rgba(0,0,0,.5);
+  }
+  #book-title span{
+    display:block; font-family:'Inter',sans-serif; font-size:.65rem; color:var(--sage);
+    letter-spacing:.12em; text-transform:uppercase; margin-top:2px;
+  }
+  .icon-btn{
+    width:38px; height:38px; border-radius:50%;
+    border:1px solid rgba(184,147,75,.4);
+    background:rgba(15,61,46,.55);
+    color:var(--gold-bright);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:.2s;
+    backdrop-filter:blur(4px);
+  }
+  .icon-btn:hover{ background:var(--gold); color:var(--ink-green-dark); border-color:var(--gold); }
+  .icon-btn svg{ width:17px; height:17px; }
+
+  /* ---------- Book stage ---------- */
+  #stage{
+    height:100%; width:100%;
+    display:flex; align-items:center; justify-content:center;
+    padding:70px 20px 96px;
+  }
+  #flipbook{
+    box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
+    border-radius:2px;
+  }
+  .page{
+    background:var(--parchment);
+    overflow:hidden;
+  }
+  .page canvas{ width:100%; height:100%; display:block; }
+  .page-loading{
+    position:absolute; inset:0;
+    background:var(--parchment);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--sage); font-size:.75rem; font-family:'Inter',sans-serif;
+  }
+  .page-shadow-spine{
+    position:absolute; top:0; bottom:0; width:24px;
+    background:linear-gradient(to right, rgba(0,0,0,.18), transparent);
+    pointer-events:none;
+  }
+
+  /* ---------- Bottom bar ---------- */
+  #bottombar{
+    position:fixed; bottom:0; left:0; right:0; z-index:20;
+    display:flex; align-items:center; justify-content:center; gap:18px;
+    padding:16px 22px 20px;
+    background:linear-gradient(to top, rgba(7,20,16,.9), transparent);
+  }
+  #page-indicator{
+    font-family:'Amiri', serif; font-size:.95rem; color:var(--gold-bright);
+    min-width:96px; text-align:center; user-select:none;
+  }
+  #page-indicator b{ color:var(--parchment); font-weight:600; }
+  input[type=range]{
+    -webkit-appearance:none; width:180px; height:3px;
+    background:rgba(184,147,75,.3); border-radius:3px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background:var(--gold-bright); cursor:pointer; box-shadow:0 0 0 3px rgba(216,184,114,.2);
+  }
+
+  /* ---------- No-file state ---------- */
+  #empty-state{
+    position:fixed; inset:0; z-index:10;
+    display:none; align-items:center; justify-content:center; flex-direction:column;
+    text-align:center; padding:40px;
+  }
+  #empty-state.show{ display:flex; }
+  #empty-state h1{ font-family:'Rakkas',serif; color:var(--gold-bright); font-size:1.6rem; margin:0 0 10px; }
+  #empty-state p{ font-family:'Inter',sans-serif; color:var(--sage); max-width:420px; line-height:1.6; font-size:.9rem; direction:ltr; }
+  #empty-state code{ background:rgba(184,147,75,.15); padding:2px 7px; border-radius:4px; color:var(--gold-bright); }
+
+  @media (max-width:640px){
+    #book-title{ font-size:.9rem; }
+    input[type=range]{ width:110px; }
+    #stage{ padding:60px 8px 90px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="ornament"></div>
+  <div id="loading-text">جارٍ تحميل الكتاب</div>
+  <div id="loading-sub">Preparing pages…</div>
+  <div id="progress-track"><div id="progress-bar"></div></div>
+</div>
+
+<div id="topbar">
+  <div id="book-title">اسم الكتاب<span>Interactive Reader</span></div>
+  <div style="display:flex; gap:8px;">
+    <button class="icon-btn" id="btn-toc" title="Table of contents">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
+    </button>
+    <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+    </button>
+  </div>
+</div>
+
+<div id="stage">
+  <div id="flipbook"></div>
+</div>
+
+<div id="empty-state">
+  <h1>لا يوجد كتاب محمّل — No book loaded</h1>
+  <p>Place your PDF next to this file and name it <code>book.pdf</code>, or add <code>?pdf=yourfile.pdf</code> to the URL. See README.md for full GitHub Pages deployment steps.</p>
+</div>
+
+<div id="bottombar">
+  <button class="icon-btn" id="btn-prev" title="Previous">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div id="page-indicator"><b id="cur-page">1</b> / <span id="total-pages">—</span></div>
+  <input type="range" id="page-slider" min="1" max="1" value="1">
+  <button class="icon-btn" id="btn-next" title="Next">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://unpkg.com/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+
+<script>
+(function(){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  // ---- config ----
+  const params = new URLSearchParams(location.search);
+  const PDF_URL = params.get('pdf') || 'book.pdf';
+  const RENDER_SCALE = 2.0; // raise for crisper pages, costs more memory/time
+
+  const loadingEl = document.getElementById('loading');
+  const progressBar = document.getElementById('progress-bar');
+  const loadingSub = document.getElementById('loading-sub');
+  const emptyState = document.getElementById('empty-state');
+  const flipbookEl = document.getElementById('flipbook');
+  const curPageEl = document.getElementById('cur-page');
+  const totalPagesEl = document.getElementById('total-pages');
+  const slider = document.getElementById('page-slider');
+
+  let pageFlip = null;
+
+  const RTL_SCRIPT = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/g; // Hebrew, Arabic, Arabic Presentation Forms
+  const LTR_SCRIPT = /[A-Za-z]/g;
+  const RTL_LANGS = ['ar','he','fa','ur','yi','ps','sd','ug'];
+
+  // Figures out reading/binding direction for a PDF that doesn't come with
+  // an explicit ?dir= override. Tries, in order of reliability:
+  //   1. The PDF's own /ViewerPreferences/Direction flag (rare, but authoritative)
+  //   2. Document language metadata (dc:language / Lang)
+  //   3. Sampling actual text on the first few pages and counting script usage
+  // Falls back to 'ltr' if the PDF has no text layer at all (pure image scans),
+  // since that case can't be auto-detected — use ?dir=rtl manually for those.
+  async function detectDirection(pdf) {
+    try {
+      const vp = await pdf.getViewerPreferences?.();
+      if (vp && vp.Direction) {
+        return vp.Direction === 'R2L' ? 'rtl' : 'ltr';
+      }
+    } catch (e) { /* not present, keep trying */ }
+
+    try {
+      const meta = await pdf.getMetadata();
+      const lang = (meta?.info?.Lang || '').toLowerCase();
+      if (RTL_LANGS.some(l => lang.startsWith(l))) return 'rtl';
+    } catch (e) { /* no metadata */ }
+
+    try {
+      let rtlCount = 0, ltrCount = 0;
+      const pagesToSample = Math.min(pdf.numPages, 3);
+      for (let i = 1; i <= pagesToSample; i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        const text = tc.items.map(it => it.str).join(' ');
+        rtlCount += (text.match(RTL_SCRIPT) || []).length;
+        ltrCount += (text.match(LTR_SCRIPT) || []).length;
+      }
+      if (rtlCount + ltrCount > 0) return rtlCount > ltrCount ? 'rtl' : 'ltr';
+    } catch (e) { /* no text layer — image-only scan */ }
+
+    return 'ltr';
+  }
+
+  async function renderPageToCanvas(pdf, pageNum) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: RENDER_SCALE });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas;
+  }
+
+  function buildPageDiv(canvas) {
+    const div = document.createElement('div');
+    div.className = 'page';
+    div.style.position = 'relative';
+    div.appendChild(canvas);
+    return div;
+  }
+
+  async function init() {
+    let pdf;
+    try {
+      pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+    } catch (e) {
+      loadingEl.classList.add('hide');
+      emptyState.classList.add('show');
+      console.error('Could not load PDF:', e);
+      return;
+    }
+
+    const numPages = pdf.numPages;
+    totalPagesEl.textContent = numPages;
+    slider.max = numPages;
+
+    // Direction: explicit ?dir= wins, otherwise auto-detect from the PDF itself
+    const forcedDir = params.get('dir');
+    const dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
+    document.documentElement.setAttribute('dir', dir);
+    loadingSub.textContent = `Detected ${dir === 'rtl' ? 'right-to-left' : 'left-to-right'} binding…`;
+
+    // Use first page's aspect ratio to size the book
+    const firstPage = await pdf.getPage(1);
+    const vp1 = firstPage.getViewport({ scale: 1 });
+    const aspect = vp1.width / vp1.height;
+
+    const maxH = Math.min(window.innerHeight - 170, 900);
+    const singlePageHeight = maxH;
+    const singlePageWidth = Math.round(singlePageHeight * aspect);
+
+    pageFlip = new St.PageFlip(flipbookEl, {
+      width: singlePageWidth,
+      height: singlePageHeight,
+      size: 'fixed',
+      minWidth: 200,
+      maxWidth: 1400,
+      minHeight: 300,
+      maxHeight: 1400,
+      showCover: true,
+      usePortrait: window.innerWidth < 760,
+      maxShadowOpacity: 0.5,
+      mobileScrollSupport: true,
+      direction: dir,         // auto-detected above, or forced via ?dir=rtl / ?dir=ltr
+      drawShadow: true,
+      flippingTime: 700
+    });
+
+    const pageDivs = [];
+    for (let i = 0; i < numPages; i++) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'page';
+      placeholder.innerHTML = '<div class="page-loading">…</div>';
+      pageDivs.push(placeholder);
+    }
+    pageFlip.loadFromHTML(pageDivs);
+
+    // Render pages progressively: first page immediately, rest in background
+    for (let i = 1; i <= numPages; i++) {
+      const canvas = await renderPageToCanvas(pdf, i);
+      const target = pageFlip.getPageCollection().getPages()[i - 1];
+      const el = target.getElement();
+      el.innerHTML = '';
+      el.appendChild(canvas);
+
+      const pct = Math.round((i / numPages) * 100);
+      progressBar.style.width = pct + '%';
+      loadingSub.textContent = `Rendering page ${i} of ${numPages}…`;
+
+      if (i === 1) {
+        loadingEl.classList.add('hide');
+      }
+    }
+
+    pageFlip.on('flip', (e) => {
+      curPageEl.textContent = e.data + 1;
+      slider.value = e.data + 1;
+    });
+
+    document.getElementById('btn-next').onclick = () => pageFlip.flipNext();
+    document.getElementById('btn-prev').onclick = () => pageFlip.flipPrev();
+    slider.addEventListener('input', () => {
+      pageFlip.flip(parseInt(slider.value, 10) - 1);
+    });
+
+    // Arrow keys always mean "forward"/"back" visually, regardless of binding direction
+    const forwardKey = dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+    const backKey    = dir === 'rtl' ? 'ArrowRight' : 'ArrowLeft';
+    window.addEventListener('keydown', (e) => {
+      if (e.key === forwardKey) pageFlip.flipNext();
+      if (e.key === backKey) pageFlip.flipPrev();
+    });
+  }
+
+  document.getElementById('btn-fullscreen').onclick = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  };
+  document.getElementById('btn-toc').onclick = () => {
+    alert('Add your own table-of-contents panel here — see README.md for a starting point.');
+  };
+
+  init();
+})();
+</script>
+
+</body>
+</html>
