@@ -235,6 +235,9 @@
     <button class="icon-btn" id="btn-toc" title="Table of contents" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
     </button>
+    <a class="icon-btn" id="btn-download" title="Download PDF" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>
+    </a>
     <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
     </button>
@@ -400,12 +403,16 @@
     }
   }
 
-  async function prefetchForward(pdf, targetIdx) {
+  async function prefetchForward(pdf, targetIdx, onProgress) {
     targetIdx = Math.min(targetIdx, numPages - 1);
+    const total = Math.max(1, targetIdx - loadedUpTo);
+    let done = 0;
     for (let i = loadedUpTo + 1; i <= targetIdx; i++) {
       await ensurePageRendered(pdf, i);
       loadedUpTo = Math.max(loadedUpTo, i);
       trimBehind(currentLogicalIdx);
+      done++;
+      if (onProgress) onProgress(done, total);
     }
   }
 
@@ -540,9 +547,9 @@
   }
 
   // (Re)builds the flip book at the current window size/orientation,
-  // preserving the reader's place. Called on first load and again on
-  // resize/orientation change, since a fixed-size instance can't just be
-  // resized in place.
+  // preserving the reader's place. Called on first load and again when the
+  // orientation genuinely changes (not on every resize — see the note by
+  // the resize listener in init() for why).
   async function buildBook(pdf, targetLogicalIdx, animate) {
     if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
     replaceFlipbookElement();
@@ -589,8 +596,6 @@
     loadedUpTo = targetLogicalIdx;
     curPageEl.textContent = targetLogicalIdx + 1;
     slider.value = targetLogicalIdx + 1;
-
-    prefetchForward(pdf, Math.min(targetLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
   }
 
   async function buildTOC(pdf) {
@@ -668,10 +673,24 @@
 
     loadingSub.textContent = 'Rendering page 1…';
     await buildBook(pdf, 0);
+    // Load a real initial batch (with a genuine percentage, not just page 1)
+    // before revealing the book — the reader is looking at a fully-usable
+    // opening chunk once this finishes, not just a lone first page.
+    const firstBatchTarget = Math.min(INITIAL_BATCH - 1, numPages - 1);
+    await prefetchForward(pdf, firstBatchTarget, (done, total) => {
+      const pct = Math.round((done / total) * 100);
+      progressBar.style.width = pct + '%';
+      loadingSub.textContent = `Loading pages… ${pct}%`;
+    });
     loadingEl.classList.add('hide');
 
     document.getElementById('btn-next').onclick = goForward;
     document.getElementById('btn-prev').onclick = goBackward;
+
+    const downloadLink = document.getElementById('btn-download');
+    downloadLink.href = PDF_URL;
+    downloadLink.download = PDF_URL.split('/').pop().split('?')[0] || 'book.pdf';
+
     slider.addEventListener('input', () => {
       jumpToLogical(parseInt(slider.value, 10) - 1);
     });
@@ -723,34 +742,41 @@
       }
     });
 
+    // Rebuilding the book (destroy + recreate) is what breaks it if
+    // triggered at the wrong moment — that's exactly what was happening on
+    // fullscreen enter/exit (F11 or the button), which resizes the
+    // viewport but does NOT change portrait/landscape. So: only rebuild
+    // when the orientation genuinely flips (actual device rotation).
+    // Fullscreen and ordinary window resizing now just leave the existing
+    // book as-is rather than risk breaking it — it won't perfectly re-fill
+    // the new space, but it also won't disappear.
+    let lastPortrait = computeLayout().portrait;
     let resizeTimer;
     async function rebuildForNewLayout() {
       try {
         await buildBook(pdfDoc, currentLogicalIdx, false);
+        prefetchForward(pdfDoc, Math.min(currentLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
       } catch (e) {
-        // If a rebuild fails (e.g. triggered mid-transition with
-        // still-settling viewport dimensions), retry once shortly after
-        // rather than leaving the book blank.
         console.error('[flipbook] rebuild failed, retrying:', e);
         setTimeout(() => buildBook(pdfDoc, currentLogicalIdx, false).catch((e2) => console.error('[flipbook] retry also failed:', e2)), 400);
       }
     }
-    function scheduleRebuild(delay) {
+    function maybeRebuild(delay) {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(rebuildForNewLayout, delay);
+      resizeTimer = setTimeout(() => {
+        const nowPortrait = window.innerWidth < window.innerHeight;
+        if (nowPortrait !== lastPortrait) {
+          lastPortrait = nowPortrait;
+          rebuildForNewLayout();
+        }
+      }, delay);
     }
-    // Plain resize (covers window resize, F11 fullscreen, and most
-    // fullscreen-API transitions too).
-    window.addEventListener('resize', () => scheduleRebuild(400));
+    window.addEventListener('resize', () => maybeRebuild(400));
     // orientationchange on iOS in particular can fire before
     // innerWidth/innerHeight have actually settled to their new values —
-    // a longer delay here reduces the chance of rebuilding with stale
+    // a longer delay here reduces the chance of checking with stale
     // (pre-rotation) dimensions.
-    window.addEventListener('orientationchange', () => scheduleRebuild(500));
-    // Explicit fullscreenchange listener as a second, redundant path for
-    // browsers/devices where entering/exiting fullscreen doesn't reliably
-    // fire a plain resize event.
-    document.addEventListener('fullscreenchange', () => scheduleRebuild(400));
+    window.addEventListener('orientationchange', () => maybeRebuild(500));
 
     buildTOC(pdf);
   }
