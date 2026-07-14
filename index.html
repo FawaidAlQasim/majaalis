@@ -26,10 +26,12 @@
 
   html,body{
     margin:0; padding:0; height:100%;
-    background:
-      radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
+    background-color: #f7f1e2;
+    background-image:
+      repeating-linear-gradient(45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(-45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px);
     font-family:'Inter', sans-serif;
-    color:var(--parchment);
+    color:var(--charcoal);
     overflow:hidden;
   }
 
@@ -37,7 +39,10 @@
   #loading{
     position:fixed; inset:0; z-index:50;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
+    background-color: #f7f1e2;
+    background-image:
+      repeating-linear-gradient(45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(-45deg, rgba(184,147,75,0.08) 0, rgba(184,147,75,0.08) 1px, transparent 1px, transparent 26px);
     transition:opacity .6s ease;
   }
   #loading.hide{ opacity:0; pointer-events:none; }
@@ -56,8 +61,8 @@
   }
   .ornament::after{ inset:16px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
-  #loading-text{ font-family:'Amiri', serif; font-size:1.05rem; letter-spacing:.04em; color:var(--gold-bright); }
-  #loading-sub{ margin-top:6px; font-size:.8rem; color:var(--sage); font-family:'Inter',sans-serif; }
+  #loading-text{ font-family:'Amiri', serif; font-size:1.05rem; letter-spacing:.04em; color:var(--ink-green); }
+  #loading-sub{ margin-top:6px; font-size:.8rem; color:#8a7550; font-family:'Inter',sans-serif; }
   #progress-track{
     width:220px; height:2px; margin-top:20px;
     background:rgba(184,147,75,.25); border-radius:2px; overflow:hidden;
@@ -118,7 +123,11 @@
      the library manages .page's transform directly for the flip animation. */
   #flip-outer{
     transform: scaleX(var(--mirror-x, 1));
-    flex-shrink:0;
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
   #flipbook{
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
@@ -207,9 +216,9 @@
     text-align:center; padding:40px;
   }
   #empty-state.show{ display:flex; }
-  #empty-state h1{ font-family:'Rakkas',serif; color:var(--gold-bright); font-size:1.6rem; margin:0 0 10px; }
-  #empty-state p{ font-family:'Inter',sans-serif; color:var(--sage); max-width:420px; line-height:1.6; font-size:.9rem; direction:ltr; }
-  #empty-state code{ background:rgba(184,147,75,.15); padding:2px 7px; border-radius:4px; color:var(--gold-bright); }
+  #empty-state h1{ font-family:'Rakkas',serif; color:var(--ink-green); font-size:1.6rem; margin:0 0 10px; }
+  #empty-state p{ font-family:'Inter',sans-serif; color:#7a6a4a; max-width:420px; line-height:1.6; font-size:.9rem; direction:ltr; }
+  #empty-state code{ background:rgba(184,147,75,.15); padding:2px 7px; border-radius:4px; color:var(--ink-green); }
 
   @media (max-width:640px){
     #book-title{ font-size:.9rem; }
@@ -512,32 +521,6 @@
     flipbookEl.addEventListener('pointercancel', () => { startX = null; });
   }
 
-  // ---- Layout: fills available screen space, single page in portrait,
-  // two-page spread in landscape — on both mobile and desktop. ----
-  // Fits the book (single page in portrait, two-page spread in landscape)
-  // into the available space using proper "contain" aspect-fit math: picks
-  // whichever dimension actually constrains it, rather than always
-  // assuming height does. Always assuming height was the constraint is
-  // what caused visible white stripes on a short, wide landscape phone
-  // screen — there, available WIDTH is what should be filled.
-  function computeLayout() {
-    const availW = Math.max(240, window.innerWidth - 24);
-    const availH = Math.max(180, window.innerHeight - 170);
-    const portrait = window.innerWidth < window.innerHeight;
-    const spreadFactor = portrait ? 1 : 2;
-    const targetAspect = pdfAspect * spreadFactor; // width:height of the whole book area
-
-    let spreadW, spreadH;
-    if (availW / availH > targetAspect) {
-      spreadH = availH;
-      spreadW = spreadH * targetAspect;
-    } else {
-      spreadW = availW;
-      spreadH = spreadW / targetAspect;
-    }
-    return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH), portrait };
-  }
-
   function replaceFlipbookElement() {
     const fresh = document.createElement('div');
     fresh.id = 'flipbook';
@@ -546,23 +529,34 @@
     return fresh;
   }
 
-  // (Re)builds the flip book at the current window size/orientation,
-  // preserving the reader's place. Called on first load and again when the
-  // orientation genuinely changes (not on every resize — see the note by
-  // the resize listener in init() for why).
-  async function buildBook(pdf, targetLogicalIdx, animate) {
+  // Builds the flip book ONCE, using StPageFlip's own 'stretch' sizing mode
+  // instead of a fixed pixel size we compute and then have to destroy and
+  // recreate on every resize/rotation. 'stretch' mode is the library's own
+  // built-in mechanism for staying correctly sized (and switching between
+  // single-page/portrait and two-page/spread automatically) as its
+  // container resizes — after three rounds of the hand-rolled
+  // destroy-and-rebuild approach breaking in new ways on fullscreen and
+  // orientation change, this is a deliberate switch to let the library
+  // handle its own responsiveness instead of us reimplementing it.
+  async function buildBook(pdf, targetLogicalIdx) {
     if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
     replaceFlipbookElement();
 
-    const { width, height, portrait } = computeLayout();
+    // Base aspect-correct size — 'stretch' mode uses this as its reference
+    // ratio, then fits within min/max bounds based on the container's
+    // actual size, recalculating on its own as that container resizes.
+    const baseHeight = 600;
+    const baseWidth = Math.round(baseHeight * pdfAspect);
 
     pageFlip = new St.PageFlip(flipbookEl, {
-      width, height,
-      size: 'fixed',
-      minWidth: 200, maxWidth: 2000,
-      minHeight: 250, maxHeight: 2000,
+      width: baseWidth,
+      height: baseHeight,
+      size: 'stretch',
+      minWidth: 220, maxWidth: 900,
+      minHeight: Math.round(220 / pdfAspect), maxHeight: Math.round(900 / pdfAspect),
       showCover: true,
-      usePortrait: portrait,
+      usePortrait: true, // let the library decide single vs. spread as it resizes
+      autoSize: false,   // the book fits ITS container; the container doesn't resize to fit the book
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
       useMouseEvents: false, // replaced with setupGestures() — see comment there
@@ -665,13 +659,13 @@
     dir = (forcedDir === 'rtl' || forcedDir === 'ltr') ? forcedDir : await detectDirection(pdf);
     document.documentElement.setAttribute('dir', dir);
     flipOuterEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
-    loadingSub.textContent = `Detected ${dir === 'rtl' ? 'right-to-left' : 'left-to-right'} binding…`;
+    loadingSub.textContent = 'جاري التحميل...';
 
     const firstPage = await pdf.getPage(1);
     const vp1 = firstPage.getViewport({ scale: 1 });
     pdfAspect = vp1.width / vp1.height;
 
-    loadingSub.textContent = 'Rendering page 1…';
+    loadingSub.textContent = 'جاري التحميل...';
     await buildBook(pdf, 0);
     // Load a real initial batch (with a genuine percentage, not just page 1)
     // before revealing the book — the reader is looking at a fully-usable
@@ -680,7 +674,7 @@
     await prefetchForward(pdf, firstBatchTarget, (done, total) => {
       const pct = Math.round((done / total) * 100);
       progressBar.style.width = pct + '%';
-      loadingSub.textContent = `Loading pages… ${pct}%`;
+      loadingSub.textContent = `جاري التحميل... ${pct}٪`;
     });
     loadingEl.classList.add('hide');
 
@@ -750,41 +744,70 @@
     // Fullscreen and ordinary window resizing now just leave the existing
     // book as-is rather than risk breaking it — it won't perfectly re-fill
     // the new space, but it also won't disappear.
-    let lastPortrait = computeLayout().portrait;
+    // Rebuilding the book (destroy + recreate) is what breaks it if
+    // triggered at the wrong moment — that's exactly what was happening on
+    // fullscreen enter/exit (F11 or the button), which resizes the
+    // 'stretch' mode (see buildBook) is supposed to handle resizing and
+    // portrait/landscape switching on its own, without us destroying and
+    // recreating anything. This is a safety net in case that ever doesn't
+    // happen correctly on some device/browser: after a resize settles,
+    // check whether the book still has a real, non-zero size, and only
+    // rebuild if it doesn't — rebuilding unconditionally on every resize
+    // is exactly the pattern that kept breaking fullscreen and rotation in
+    // earlier versions.
     let resizeTimer;
-    async function rebuildForNewLayout() {
+    async function robustRebuild(attempt) {
+      attempt = attempt || 1;
       try {
-        await buildBook(pdfDoc, currentLogicalIdx, false);
+        await buildBook(pdfDoc, currentLogicalIdx);
         prefetchForward(pdfDoc, Math.min(currentLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
+        if (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight) {
+          throw new Error('book has zero size after rebuild');
+        }
       } catch (e) {
-        console.error('[flipbook] rebuild failed, retrying:', e);
-        setTimeout(() => buildBook(pdfDoc, currentLogicalIdx, false).catch((e2) => console.error('[flipbook] retry also failed:', e2)), 400);
+        console.error('[flipbook] rebuild attempt ' + attempt + ' failed:', e);
+        if (attempt < 5) setTimeout(() => robustRebuild(attempt + 1), 300 * attempt);
       }
     }
-    function maybeRebuild(delay) {
+    function checkStillHealthy(delay) {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        const nowPortrait = window.innerWidth < window.innerHeight;
-        if (nowPortrait !== lastPortrait) {
-          lastPortrait = nowPortrait;
-          rebuildForNewLayout();
-        }
+        if (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight) robustRebuild();
       }, delay);
     }
-    window.addEventListener('resize', () => maybeRebuild(400));
-    // orientationchange on iOS in particular can fire before
-    // innerWidth/innerHeight have actually settled to their new values —
-    // a longer delay here reduces the chance of checking with stale
-    // (pre-rotation) dimensions.
-    window.addEventListener('orientationchange', () => maybeRebuild(500));
+    window.addEventListener('resize', () => checkStillHealthy(400));
+    window.addEventListener('orientationchange', () => checkStillHealthy(600));
+
+    // Last-resort manual recovery: if the book area is ever tapped while
+    // it has no visible content, rebuild once more right away.
+    stageEl.addEventListener('pointerup', () => {
+      if (pdfDoc && (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight)) robustRebuild();
+    });
 
     buildTOC(pdf);
   }
 
-  document.getElementById('btn-fullscreen').onclick = () => {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-    else document.exitFullscreen();
-  };
+  // Many mobile browsers — iOS Safari in particular — don't support the
+  // Fullscreen API for arbitrary page content (only for <video>). Rather
+  // than show a button that silently does nothing there, hide it when
+  // unsupported. Vendor-prefixed fallbacks cover older/other browsers that
+  // support it under a different method name.
+  const btnFullscreen = document.getElementById('btn-fullscreen');
+  const docEl = document.documentElement;
+  const requestFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+  const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+
+  if (!requestFS) {
+    btnFullscreen.style.display = 'none';
+  } else {
+    btnFullscreen.onclick = () => {
+      try {
+        if (!fsElement()) requestFS.call(docEl).catch?.(() => {});
+        else exitFS.call(document).catch?.(() => {});
+      } catch (e) { console.error('[flipbook] fullscreen toggle failed:', e); }
+    };
+  }
   btnToc.addEventListener('click', () => tocOverlay.classList.add('show'));
   tocOverlay.addEventListener('click', (e) => {
     if (e.target === tocOverlay) tocOverlay.classList.remove('show');
