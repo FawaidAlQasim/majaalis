@@ -273,7 +273,7 @@
   <button class="icon-btn" id="btn-prev" title="Previous">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
   </button>
-  <div id="page-indicator"><b id="cur-page" title="Click to jump to a page">1</b><input type="number" id="page-input" min="1"> / <span id="total-pages">—</span></div>
+  <div id="page-indicator"><b id="cur-page" title="Click to jump to a page">١</b><input type="text" inputmode="numeric" id="page-input"> / <span id="total-pages">—</span></div>
   <input type="range" id="page-slider" min="1" max="1" value="1">
   <button class="icon-btn" id="btn-next" title="Next">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -335,6 +335,19 @@
   const PREFETCH_CHUNK = 20;
   const KEEP_BEHIND = 150;
   const HARD_CAP = 250;
+
+  // Displays page numbers in Arabic-Indic (Hindi) numerals (٠١٢٣...),
+  // while still accepting either Arabic-Indic OR Western digits when the
+  // reader types a page number to jump to.
+  const ARABIC_DIGITS = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  function toArabicDigits(n) {
+    return String(n).replace(/[0-9]/g, (d) => ARABIC_DIGITS[d]);
+  }
+  function parseFlexibleInt(str) {
+    if (!str) return NaN;
+    const westernized = String(str).replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d)));
+    return parseInt(westernized, 10);
+  }
 
   function activeInstance() { return instances[activeMode]; }
 
@@ -511,7 +524,7 @@
       mobileScrollSupport: true,
       useMouseEvents: false,
       drawShadow: true,
-      flippingTime: 700
+      flippingTime: 400
     });
 
     const pageDivs = [];
@@ -533,8 +546,17 @@
     };
 
     pf.on('flip', (e) => {
+      // Both instances exist in the DOM at all times (see the big comment
+      // near the top of this script) and both fire their own internal
+      // 'flip' events — including during construction/setup, not just
+      // real user navigation. Without this guard, an event from whichever
+      // instance ISN'T currently visible could still overwrite the shared
+      // page-number display and slider with a stale/meaningless value —
+      // that's what caused the page counter to briefly show impossible
+      // numbers like "numPages" as the current page.
+      if (inst !== activeInstance()) return;
       const logicalIdx0 = e.data;
-      curPageEl.textContent = logicalIdx0 + 1;
+      curPageEl.textContent = toArabicDigits(logicalIdx0 + 1);
       slider.value = logicalIdx0 + 1;
       onPageChanged(inst, logicalIdx0);
     });
@@ -602,7 +624,7 @@
 
     numPages = manifest.numPages;
     pdfAspect = manifest.aspect || 0.72;
-    totalPagesEl.textContent = numPages;
+    totalPagesEl.textContent = toArabicDigits(numPages);
     slider.max = numPages;
 
     const forcedDir = params.get('dir');
@@ -614,19 +636,28 @@
 
     instances.portrait = buildInstance('portrait');
     instances.landscape = buildInstance('landscape');
+    // Explicitly set inline display on BOTH instances (not just relying on
+    // the CSS default for whichever starts inactive) — the flip library
+    // sets its own inline display style on its container during setup,
+    // which silently overrides our stylesheet rule. Without this, the
+    // "inactive" instance could stay visible underneath/beside the active
+    // one, which is what caused the layout corruption (cover stuck on one
+    // side, book jumping to a corner on rotation).
+    instances.portrait.flipbookEl.style.display = 'none';
+    instances.landscape.flipbookEl.style.display = 'none';
     activeMode = (window.innerWidth < window.innerHeight) ? 'portrait' : 'landscape';
     instances[activeMode].flipbookEl.style.display = '';
 
     currentLogicalIdx = 0;
     await ensurePageRendered(activeInstance(), 0);
-    curPageEl.textContent = 1;
+    curPageEl.textContent = toArabicDigits(1);
     slider.value = 1;
 
     const firstBatchTarget = Math.min(INITIAL_BATCH - 1, numPages - 1);
     await prefetchForward(activeInstance(), firstBatchTarget, (done, total) => {
       const pct = Math.round((done / total) * 100);
       progressBar.style.width = pct + '%';
-      loadingSub.textContent = `جاري التحميل... ${pct}٪`;
+      loadingSub.textContent = `جاري التحميل... ${toArabicDigits(pct)}٪`;
     });
     loadingEl.classList.add('hide');
 
@@ -645,15 +676,14 @@
     });
 
     curPageEl.addEventListener('click', () => {
-      pageInput.max = numPages;
-      pageInput.value = curPageEl.textContent;
+      pageInput.value = curPageEl.textContent; // pre-filled in Arabic-Indic, matching the display
       curPageEl.style.display = 'none';
       pageInput.style.display = 'inline-block';
       pageInput.focus();
       pageInput.select();
     });
     function commitPageInput() {
-      const v = parseInt(pageInput.value, 10);
+      const v = parseFlexibleInt(pageInput.value); // accepts Arabic-Indic (٠-٩) or Western (0-9) digits
       pageInput.style.display = 'none';
       curPageEl.style.display = '';
       if (!isNaN(v)) jumpToLogical(v - 1);
