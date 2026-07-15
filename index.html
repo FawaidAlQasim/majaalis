@@ -493,6 +493,14 @@
     await ensurePageRendered(inst, logicalIdx0);
     await ensurePageRendered(inst, logicalIdx0 - 1);
     await ensurePageRendered(inst, logicalIdx0 + 1);
+    // A jump (via slider/TOC/typed page number) only renders the handful
+    // of pages right around the target — it never told the "how far ahead
+    // have we prefetched" tracker that the reader moved. Left stale, the
+    // next prefetch-ahead check would try to extend the buffer from the
+    // OLD position instead of the new one, which is why jumping straight
+    // to page 660 was only ever loading page 661 and nothing further
+    // ahead: the frontier tracker still thought it was back near page 8.
+    if (logicalIdx0 > inst.loadedUpTo) inst.loadedUpTo = logicalIdx0;
     // Always a direct (non-animated) jump — the animated flip(index) call
     // was landing 2 pages off from the requested target specifically in
     // two-page spread mode (typing "6" from page 4 landed on 8, typing "6"
