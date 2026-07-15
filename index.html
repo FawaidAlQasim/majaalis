@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>كتاب — قارئ تفاعلي</title>
+<title>كتب مجلس السماع - عبد المحسن القاسم</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,8 +24,13 @@
 
   *{ box-sizing:border-box; }
 
-  html,body{
+  html{
     margin:0; padding:0; height:100%;
+    overflow:hidden;
+  }
+  body{
+    margin:0; padding:0; height:100%;
+    overflow:hidden; /* touch devices override this below — see the pointer:coarse block */
     background-color: #0f3d2e;
     background-image:
       repeating-linear-gradient(45deg, rgba(216,184,114,0.05) 0, rgba(216,184,114,0.05) 1px, transparent 1px, transparent 26px),
@@ -33,7 +38,6 @@
       radial-gradient(ellipse at center, #12251d 0%, #071410 100%);
     font-family:'Inter', sans-serif;
     color:var(--parchment);
-    overflow:hidden;
     touch-action:manipulation;
   }
 
@@ -174,10 +178,10 @@
   #page-go{
     display:none; width:28px; height:28px; border-radius:50%;
     border:1px solid rgba(184,147,75,.5); background:rgba(184,147,75,.15);
-    color:var(--gold-bright); font-size:.85rem; line-height:1; cursor:pointer;
+    color:var(--gold-bright); font-size:1rem; font-weight:700; line-height:1; cursor:pointer;
     align-items:center; justify-content:center; margin-inline-start:4px;
+    touch-action:manipulation; padding:0;
   }
-  #page-go svg{ width:14px; height:14px; }
   input[type=range]{
     -webkit-appearance:none; width:180px; height:3px;
     background:rgba(184,147,75,.3); border-radius:3px; outline:none;
@@ -231,10 +235,25 @@
 
   @media (max-width:640px){
     #book-title{ font-size:.9rem; }
-    input[type=range]{ width:110px; }
     #stage{ padding:60px 4px 90px; }
     #topbar > div{ gap:6px !important; }
     .icon-btn{ width:34px; height:34px; }
+  }
+  /* Touch devices: page-turning happens via tap/swipe on the book itself
+     (see setupGestures in the script), so the prev/next buttons are
+     redundant there and just take up space — remove them and let the
+     progress slider use that space instead. Targeting actual touch input
+     (pointer:coarse) rather than a screen-width breakpoint, so this
+     applies correctly in both portrait and landscape on a phone/tablet. */
+  @media (pointer:coarse){
+    #btn-prev, #btn-next{ display:none; }
+    #bottombar{ gap:12px; }
+    input[type=range]{ flex:1; width:auto; }
+    /* Slightly taller than the viewport so a 1px scroll is possible —
+       needed for the address-bar-hide trick (see hideAddressBar() in the
+       script). Scoped to touch devices only so desktop never shows a
+       scrollbar it doesn't need. */
+    body{ height:101%; overflow-y:scroll; -webkit-overflow-scrolling:touch; }
   }
 </style>
 </head>
@@ -248,15 +267,15 @@
 </div>
 
 <div id="topbar">
-  <a id="book-title" href="https://a-alqasim.com/" target="_blank" rel="noopener">كتب مجلس السماع<span>a-alqasim.com</span></a>
+  <a id="book-title" href="https://a-alqasim.com/" target="_blank" rel="noopener">كتب مجلس السماع - عبد المحسن القاسم<span>a-alqasim.com</span></a>
   <div style="display:flex; gap:8px;">
-    <button class="icon-btn" id="btn-toc" title="Table of contents" disabled>
+    <button class="icon-btn" id="btn-toc" title="الفهرس" disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
     </button>
-    <a class="icon-btn" id="btn-download" title="Download PDF" download style="display:none;">
+    <a class="icon-btn" id="btn-download" title="تنزيل الملف" download style="display:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>
     </a>
-    <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
+    <button class="icon-btn" id="btn-fullscreen" title="ملء الشاشة">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
     </button>
   </div>
@@ -273,18 +292,18 @@
 
 <div id="toc-overlay">
   <div id="toc-panel">
-    <h2>الفهرس — Contents</h2>
+    <h2>الفهرس</h2>
     <div id="toc-body"><div class="toc-empty">Loading…</div></div>
   </div>
 </div>
 
 <div id="bottombar">
-  <button class="icon-btn" id="btn-prev" title="Previous">
+  <button class="icon-btn" id="btn-prev" title="السابق">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
   </button>
-  <div id="page-indicator"><b id="cur-page" title="Click to jump to a page">١</b><input type="text" inputmode="numeric" enterkeyhint="done" id="page-input"><button id="page-go" title="Go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></button> / <span id="total-pages">—</span></div>
+  <div id="page-indicator"><b id="cur-page" title="اضغط للانتقال إلى صفحة">١</b><input type="text" inputmode="numeric" enterkeyhint="done" id="page-input"><button id="page-go" title="انتقال">✓</button> / <span id="total-pages">—</span></div>
   <input type="range" id="page-slider" min="1" max="1" value="1">
-  <button class="icon-btn" id="btn-next" title="Next">
+  <button class="icon-btn" id="btn-next" title="التالي">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
   </button>
 </div>
@@ -356,6 +375,19 @@
     if (!str) return NaN;
     const westernized = String(str).replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d)));
     return parseInt(westernized, 10);
+  }
+
+  // Nudges mobile browsers into collapsing their address bar. Browsers
+  // auto-hide their own chrome on scroll — this page normally blocks all
+  // scrolling (see body's overflow-y:scroll + the 101% height above, which
+  // exist specifically to make this 1px scroll possible), so without this
+  // trick the address bar would just sit there permanently, especially in
+  // landscape where it eats a real chunk of an already-short screen.
+  // Best-effort only: some browser versions ignore it or behave slightly
+  // differently, and there's no way to force browser chrome from a page.
+  function hideAddressBar() {
+    window.scrollTo(0, 1);
+    setTimeout(() => window.scrollTo(0, 1), 300);
   }
 
   function activeInstance() { return instances[activeMode]; }
@@ -594,14 +626,29 @@
     return inst;
   }
 
-  // Switches which instance is visible. Cheap and non-destructive — no
-  // St.PageFlip instance is ever destroyed or recreated after startup.
+  // Switches which instance is visible. The target instance is rebuilt
+  // fresh — with dimensions computed from the CURRENT window size — right
+  // before being shown, rather than trusting whatever dimensions were
+  // captured once at page load. This matters because mobile browsers
+  // (iOS Safari/Chrome in particular) can report unreliable
+  // window.innerWidth/innerHeight before their own chrome (address bar)
+  // has settled, so a size computed once at startup for "the other"
+  // orientation could simply be wrong. Rebuilding happens while the
+  // instance is still hidden, so there's no risk of a visible flash or
+  // break — and the currently-VISIBLE instance is never touched here,
+  // which is what keeps this safe (that was the source of the earlier
+  // disappearing-book bugs).
   function showInstance(mode) {
     if (activeMode === mode) return;
-    instances.portrait.flipbookEl.style.display = (mode === 'portrait') ? '' : 'none';
-    instances.landscape.flipbookEl.style.display = (mode === 'landscape') ? '' : 'none';
+    const old = instances[mode];
+    if (old) { try { old.pageFlip.destroy(); } catch (e) {} old.flipbookEl.remove(); }
+    instances[mode] = buildInstance(mode);
+
+    instances.portrait.flipbookEl.style.display = 'none';
+    instances.landscape.flipbookEl.style.display = 'none';
     activeMode = mode;
     const inst = instances[mode];
+    inst.flipbookEl.style.display = '';
     inst.pageFlip.turnToPage(currentLogicalIdx);
     onPageChanged(inst, currentLogicalIdx);
   }
@@ -662,6 +709,12 @@
     flipOuterEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
 
     loadingSub.textContent = 'جاري التحميل...';
+
+    // Wait a frame before the very first size computation — mobile browser
+    // chrome (address bar) can report unsettled window dimensions in the
+    // instant right after page load, and this is the one build that
+    // showInstance()'s "rebuild when switching" safeguard doesn't cover.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
     instances.portrait = buildInstance('portrait');
     instances.landscape = buildInstance('landscape');
@@ -761,10 +814,12 @@
       resizeTimer = setTimeout(() => {
         const nowPortrait = window.innerWidth < window.innerHeight;
         showInstance(nowPortrait ? 'portrait' : 'landscape');
+        hideAddressBar();
       }, 300);
     }
     window.addEventListener('resize', handleOrientationCheck);
     window.addEventListener('orientationchange', handleOrientationCheck);
+    hideAddressBar();
 
     buildTOC();
   }
@@ -794,6 +849,7 @@
     if (e.target === tocOverlay) tocOverlay.classList.remove('show');
   });
 
+  window.addEventListener('load', hideAddressBar);
   init();
 })();
 </script>
