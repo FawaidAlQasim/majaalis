@@ -122,11 +122,17 @@
     display:flex;
     align-items:center;
     justify-content:center;
+    position:relative;
   }
-  #flipbook{
+  /* Two persistent flip-book instances (portrait-sized, landscape-sized)
+     live in the DOM at once; only one is ever display:block at a time.
+     Switching between them on orientation change is just a CSS toggle —
+     see the big comment above showInstance() in the script for why. */
+  .flipbook-instance{
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
     border-radius:2px;
     touch-action:pan-y;
+    display:none;
   }
 
   .page{
@@ -248,9 +254,7 @@
 </div>
 
 <div id="stage">
-  <div id="flip-outer">
-    <div id="flipbook"></div>
-  </div>
+  <div id="flip-outer"></div>
 </div>
 
 <div id="empty-state">
@@ -276,8 +280,6 @@
   </button>
 </div>
 
-<!-- No PDF.js needed anymore — pages are pre-rendered images, so only the
-     flip-animation library is required. -->
 <script src="https://unpkg.com/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
 
 <script>
@@ -300,29 +302,41 @@
   const tocBody = document.getElementById('toc-body');
   const btnToc = document.getElementById('btn-toc');
 
-  let flipbookEl = document.getElementById('flipbook');
-  let pageFlip = null;
   let numPages = 0;
   let dir = 'ltr';
   let manifest = null;
   let pdfAspect = 0.72;
-  let pageDivs = [];
   let currentLogicalIdx = 0;
 
-  const renderedPages = new Set(); // logical indices currently holding a loaded image
+  // ---- Dual persistent instances instead of destroy-and-rebuild ----
+  // Every earlier version of this reader rebuilt (destroyed + recreated)
+  // the flip-book instance whenever the layout needed to change size —
+  // and across several rounds of fixes, that rebuild kept failing in new
+  // ways: breaking on fullscreen toggle, breaking on device rotation,
+  // sometimes not recovering even with retries, requiring a manual page
+  // refresh. Rather than patch that mechanism again, this version avoids
+  // it entirely: TWO St.PageFlip instances are built ONCE at startup (one
+  // sized for portrait/single-page, one for landscape/two-page-spread),
+  // and switching between them is just a CSS display toggle plus a cheap,
+  // non-destructive turnToPage() to sync position — nothing is ever torn
+  // down or reconstructed again after the initial load.
+  //
+  // The trade-off: a same-orientation resize (like entering/exiting
+  // fullscreen, or resizing a desktop browser window without rotating)
+  // does NOT resize the active instance — it stays at the size it was
+  // built at. That's intentional: it means fullscreen can no longer make
+  // the book disappear, at the cost of not perfectly re-filling the freed
+  // up space. Given how disruptive the disappearing bug was, this is a
+  // deliberate trade favoring reliability over perfect responsiveness.
+  const instances = { portrait: null, landscape: null };
+  let activeMode = null;
 
-  // ---- Lazy loading strategy ----
-  // Loading an <img> is much cheaper than rasterizing a PDF page, so this
-  // can afford to be far lighter than it needed to be for live PDF
-  // rendering: show page 1 almost immediately, load a small initial batch
-  // for smooth early flipping, then keep buffering ahead as the reader
-  // progresses. Pages far BEHIND the current position are evicted back to
-  // placeholders to keep memory bounded on very long books.
   const INITIAL_BATCH = 8;
   const PREFETCH_CHUNK = 20;
   const KEEP_BEHIND = 150;
   const HARD_CAP = 250;
-  let loadedUpTo = -1;
+
+  function activeInstance() { return instances[activeMode]; }
 
   function pageImageUrl(logicalIdx0) {
     const num = String(logicalIdx0 + 1).padStart(manifest.digits || 4, '0');
@@ -341,9 +355,9 @@
     });
   }
 
-  async function ensurePageRendered(logicalIdx0) {
+  async function ensurePageRendered(inst, logicalIdx0) {
     if (logicalIdx0 < 0 || logicalIdx0 >= numPages) return;
-    if (renderedPages.has(logicalIdx0)) return;
+    if (inst.renderedPages.has(logicalIdx0)) return;
     let img;
     try {
       img = await loadImage(logicalIdx0);
@@ -351,134 +365,121 @@
       console.error('[flipbook]', e);
       return;
     }
-    const el = pageDivs[logicalIdx0];
-    if (!el) return; // book may have been rebuilt (resize) mid-load
+    const el = inst.pageDivs[logicalIdx0];
+    if (!el) return;
     el.innerHTML = '';
     el.appendChild(img);
-    renderedPages.add(logicalIdx0);
+    inst.renderedPages.add(logicalIdx0);
   }
 
-  function trimBehind(centerIdx) {
+  function trimBehind(inst, centerIdx) {
     const lowerBound = centerIdx - KEEP_BEHIND;
-    for (const idx of [...renderedPages]) {
+    for (const idx of [...inst.renderedPages]) {
       if (idx < lowerBound) {
-        pageDivs[idx].innerHTML = '<div class="page-loading">…</div>';
-        renderedPages.delete(idx);
+        inst.pageDivs[idx].innerHTML = '<div class="page-loading">…</div>';
+        inst.renderedPages.delete(idx);
       }
     }
-    if (renderedPages.size > HARD_CAP) {
-      const farthestFirst = [...renderedPages].sort(
+    if (inst.renderedPages.size > HARD_CAP) {
+      const farthestFirst = [...inst.renderedPages].sort(
         (a, b) => Math.abs(b - centerIdx) - Math.abs(a - centerIdx)
       );
       for (const idx of farthestFirst) {
-        if (renderedPages.size <= HARD_CAP) break;
-        pageDivs[idx].innerHTML = '<div class="page-loading">…</div>';
-        renderedPages.delete(idx);
+        if (inst.renderedPages.size <= HARD_CAP) break;
+        inst.pageDivs[idx].innerHTML = '<div class="page-loading">…</div>';
+        inst.renderedPages.delete(idx);
       }
     }
   }
 
-  async function prefetchForward(targetIdx, onProgress) {
+  async function prefetchForward(inst, targetIdx, onProgress) {
     targetIdx = Math.min(targetIdx, numPages - 1);
-    const total = Math.max(1, targetIdx - loadedUpTo);
+    const total = Math.max(1, targetIdx - inst.loadedUpTo);
     let done = 0;
-    for (let i = loadedUpTo + 1; i <= targetIdx; i++) {
-      await ensurePageRendered(i);
-      loadedUpTo = Math.max(loadedUpTo, i);
-      trimBehind(currentLogicalIdx);
+    for (let i = inst.loadedUpTo + 1; i <= targetIdx; i++) {
+      await ensurePageRendered(inst, i);
+      inst.loadedUpTo = Math.max(inst.loadedUpTo, i);
+      trimBehind(inst, currentLogicalIdx);
       done++;
       if (onProgress) onProgress(done, total);
     }
   }
 
-  function maybeExtendFrontier(centerIdx) {
-    if (centerIdx + PREFETCH_CHUNK >= loadedUpTo) {
-      prefetchForward(loadedUpTo + PREFETCH_CHUNK); // background
+  function maybeExtendFrontier(inst, centerIdx) {
+    if (centerIdx + PREFETCH_CHUNK >= inst.loadedUpTo) {
+      prefetchForward(inst, inst.loadedUpTo + PREFETCH_CHUNK);
     }
   }
 
-  async function onPageChanged(logicalIdx0) {
+  async function onPageChanged(inst, logicalIdx0) {
     currentLogicalIdx = logicalIdx0;
-    await ensurePageRendered(logicalIdx0);
-    await ensurePageRendered(logicalIdx0 - 1);
-    await ensurePageRendered(logicalIdx0 + 1);
-    maybeExtendFrontier(logicalIdx0);
-    trimBehind(logicalIdx0);
+    await ensurePageRendered(inst, logicalIdx0);
+    await ensurePageRendered(inst, logicalIdx0 - 1);
+    await ensurePageRendered(inst, logicalIdx0 + 1);
+    maybeExtendFrontier(inst, logicalIdx0);
+    trimBehind(inst, logicalIdx0);
   }
 
   async function goForward() {
+    const inst = activeInstance();
     const target = Math.min(numPages - 1, currentLogicalIdx + 1);
-    await ensurePageRendered(target);
-    pageFlip.flipNext();
+    await ensurePageRendered(inst, target);
+    inst.pageFlip.flipNext();
   }
   async function goBackward() {
+    const inst = activeInstance();
     const target = Math.max(0, currentLogicalIdx - 1);
-    await ensurePageRendered(target);
-    pageFlip.flipPrev();
+    await ensurePageRendered(inst, target);
+    inst.pageFlip.flipPrev();
   }
 
   async function jumpToLogical(logicalIdx0, animate) {
+    const inst = activeInstance();
     logicalIdx0 = Math.max(0, Math.min(numPages - 1, logicalIdx0));
     const bigJump = Math.abs(logicalIdx0 - currentLogicalIdx) > 3;
-    await ensurePageRendered(logicalIdx0);
-    await ensurePageRendered(logicalIdx0 - 1);
-    await ensurePageRendered(logicalIdx0 + 1);
-    if (animate === false || bigJump) pageFlip.turnToPage(logicalIdx0);
-    else pageFlip.flip(logicalIdx0);
-    onPageChanged(logicalIdx0);
+    await ensurePageRendered(inst, logicalIdx0);
+    await ensurePageRendered(inst, logicalIdx0 - 1);
+    await ensurePageRendered(inst, logicalIdx0 + 1);
+    if (animate === false || bigJump) inst.pageFlip.turnToPage(logicalIdx0);
+    else inst.pageFlip.flip(logicalIdx0);
+    onPageChanged(inst, logicalIdx0);
   }
 
-  function isVisualForwardSide(clientX) {
-    const rect = flipbookEl.getBoundingClientRect();
+  function isVisualForwardSide(inst, clientX) {
+    const rect = inst.flipbookEl.getBoundingClientRect();
     const relX = clientX - rect.left;
     const clickedLeftHalf = relX < rect.width / 2;
     return dir === 'rtl' ? clickedLeftHalf : !clickedLeftHalf;
   }
 
-  function setupGestures() {
+  function setupGestures(inst) {
     let startX = null, startY = null;
-    flipbookEl.addEventListener('pointerdown', (e) => {
+    inst.flipbookEl.addEventListener('pointerdown', (e) => {
       startX = e.clientX; startY = e.clientY;
     });
-    flipbookEl.addEventListener('pointerup', (e) => {
+    inst.flipbookEl.addEventListener('pointerup', (e) => {
       if (startX === null) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       startX = null;
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
-        isVisualForwardSide(e.clientX) ? goForward() : goBackward();
+        isVisualForwardSide(inst, e.clientX) ? goForward() : goBackward();
       } else if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
         const draggedLeftToRight = dx > 0;
         const isForwardDrag = dir === 'rtl' ? draggedLeftToRight : !draggedLeftToRight;
         isForwardDrag ? goForward() : goBackward();
       }
     });
-    flipbookEl.addEventListener('pointercancel', () => { startX = null; });
+    inst.flipbookEl.addEventListener('pointercancel', () => { startX = null; });
   }
 
-  function replaceFlipbookElement() {
-    const fresh = document.createElement('div');
-    fresh.id = 'flipbook';
-    flipbookEl.replaceWith(fresh);
-    flipbookEl = fresh;
-    return fresh;
-  }
-
-  // Fits the book (single page in portrait, two-page spread in landscape)
-  // into the available space using "contain" aspect-fit math: picks
-  // whichever dimension actually constrains it. ('stretch' mode was tried
-  // here instead of computing this ourselves, since it's the library's own
-  // built-in responsive mechanism — but it turned out to just sit at its
-  // minimum size rather than actually filling the container, confirmed
-  // visually. Back to computing exact pixel dimensions, which is what
-  // correctly filled the screen and switched single/spread before.)
-  function computeLayout() {
+  // Computes the single-page pixel dimensions that best fill the current
+  // viewport for a given orientation ("contain" aspect-fit math).
+  function computeLayoutFor(forcePortrait) {
     const availW = Math.max(240, window.innerWidth - 24);
     const availH = Math.max(180, window.innerHeight - 170);
-    const portrait = window.innerWidth < window.innerHeight;
-    const spreadFactor = portrait ? 1 : 2;
+    const spreadFactor = forcePortrait ? 1 : 2;
     const targetAspect = pdfAspect * spreadFactor;
-
     let spreadW, spreadH;
     if (availW / availH > targetAspect) {
       spreadH = availH;
@@ -487,22 +488,25 @@
       spreadW = availW;
       spreadH = spreadW / targetAspect;
     }
-    return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH), portrait };
+    return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH) };
   }
 
-  async function buildBook(targetLogicalIdx) {
-    if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
-    replaceFlipbookElement();
+  function buildInstance(mode) {
+    const forcePortrait = mode === 'portrait';
+    const { width, height } = computeLayoutFor(forcePortrait);
 
-    const { width, height, portrait } = computeLayout();
+    const container = document.createElement('div');
+    container.className = 'flipbook-instance';
+    container.id = 'flipbook-' + mode;
+    flipOuterEl.appendChild(container);
 
-    pageFlip = new St.PageFlip(flipbookEl, {
+    const pf = new St.PageFlip(container, {
       width, height,
       size: 'fixed',
       minWidth: 200, maxWidth: 2000,
       minHeight: 250, maxHeight: 2000,
       showCover: true,
-      usePortrait: portrait,
+      usePortrait: forcePortrait,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
       useMouseEvents: false,
@@ -510,32 +514,45 @@
       flippingTime: 700
     });
 
-    pageDivs = [];
+    const pageDivs = [];
     for (let i = 0; i < numPages; i++) {
       const placeholder = document.createElement('div');
       placeholder.className = 'page';
       placeholder.innerHTML = '<div class="page-loading">…</div>';
       pageDivs.push(placeholder);
     }
-    pageFlip.loadFromHTML(pageDivs);
-    renderedPages.clear();
-    loadedUpTo = -1;
+    pf.loadFromHTML(pageDivs);
 
-    pageFlip.on('flip', (e) => {
+    const inst = {
+      mode,
+      pageFlip: pf,
+      flipbookEl: container,
+      pageDivs,
+      renderedPages: new Set(),
+      loadedUpTo: -1
+    };
+
+    pf.on('flip', (e) => {
       const logicalIdx0 = e.data;
       curPageEl.textContent = logicalIdx0 + 1;
       slider.value = logicalIdx0 + 1;
-      onPageChanged(logicalIdx0);
+      onPageChanged(inst, logicalIdx0);
     });
 
-    setupGestures();
+    setupGestures(inst);
+    return inst;
+  }
 
-    await ensurePageRendered(targetLogicalIdx);
-    currentLogicalIdx = targetLogicalIdx;
-    if (targetLogicalIdx > 0) pageFlip.turnToPage(targetLogicalIdx);
-    loadedUpTo = targetLogicalIdx;
-    curPageEl.textContent = targetLogicalIdx + 1;
-    slider.value = targetLogicalIdx + 1;
+  // Switches which instance is visible. Cheap and non-destructive — no
+  // St.PageFlip instance is ever destroyed or recreated after startup.
+  function showInstance(mode) {
+    if (activeMode === mode) return;
+    instances.portrait.flipbookEl.style.display = (mode === 'portrait') ? '' : 'none';
+    instances.landscape.flipbookEl.style.display = (mode === 'landscape') ? '' : 'none';
+    activeMode = mode;
+    const inst = instances[mode];
+    inst.pageFlip.turnToPage(currentLogicalIdx);
+    onPageChanged(inst, currentLogicalIdx);
   }
 
   function buildTOC() {
@@ -594,9 +611,19 @@
     flipOuterEl.style.setProperty('--mirror-x', (dir === 'rtl' && !DISABLE_MIRROR) ? -1 : 1);
 
     loadingSub.textContent = 'جاري التحميل...';
-    await buildBook(0);
+
+    instances.portrait = buildInstance('portrait');
+    instances.landscape = buildInstance('landscape');
+    activeMode = (window.innerWidth < window.innerHeight) ? 'portrait' : 'landscape';
+    instances[activeMode].flipbookEl.style.display = '';
+
+    currentLogicalIdx = 0;
+    await ensurePageRendered(activeInstance(), 0);
+    curPageEl.textContent = 1;
+    slider.value = 1;
+
     const firstBatchTarget = Math.min(INITIAL_BATCH - 1, numPages - 1);
-    await prefetchForward(firstBatchTarget, (done, total) => {
+    await prefetchForward(activeInstance(), firstBatchTarget, (done, total) => {
       const pct = Math.round((done / total) * 100);
       progressBar.style.width = pct + '%';
       loadingSub.textContent = `جاري التحميل... ${pct}٪`;
@@ -606,9 +633,6 @@
     document.getElementById('btn-next').onclick = goForward;
     document.getElementById('btn-prev').onclick = goBackward;
 
-    // Download only appears if the converted book folder includes the
-    // original PDF (manifest.pdf) — there's no single file to download
-    // when the reader itself is just displaying a sequence of images.
     const downloadLink = document.getElementById('btn-download');
     if (manifest.pdf) {
       downloadLink.href = `${BOOK_DIR}/${manifest.pdf}`;
@@ -646,52 +670,34 @@
       if (e.key === 'ArrowLeft')  { e.preventDefault(); dir === 'rtl' ? goForward() : goBackward(); }
     });
 
-    // Images are much cheaper to reload than re-rasterizing a PDF page, but
-    // mobile browsers can still drop offscreen/background image data under
+    // Mobile browsers can drop offscreen/background image data under
     // memory pressure (screen lock, app-switching) — refresh what's on
-    // screen when the tab becomes visible again, just in case.
+    // screen for the currently active instance when the tab becomes
+    // visible again, just in case.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && manifest) {
-        renderedPages.clear();
-        loadedUpTo = -1;
-        onPageChanged(currentLogicalIdx);
+        const inst = activeInstance();
+        inst.renderedPages.clear();
+        inst.loadedUpTo = -1;
+        onPageChanged(inst, currentLogicalIdx);
       }
     });
 
-    // 'fixed' size mode (see buildBook/computeLayout) gives correct sizing
-    // and single/spread switching, but — unlike 'stretch' — has to be
-    // explicitly rebuilt to respond to a resize or rotation at all. The
-    // rebuild itself is wrapped with retries and a zero-size check so a
-    // transient failure (e.g. triggered mid-rotation before dimensions
-    // settle) doesn't leave the book broken.
+    // Orientation change: switch to the OTHER pre-built instance (already
+    // sized for that orientation since page load) — cheap and safe, no
+    // destroy/rebuild involved. Same-orientation resizing (window resize,
+    // fullscreen toggle) intentionally does nothing here — see the big
+    // comment near the top of this script for why that trade-off was made.
     let resizeTimer;
-    async function robustRebuild(attempt) {
-      attempt = attempt || 1;
-      try {
-        await buildBook(currentLogicalIdx);
-        prefetchForward(Math.min(currentLogicalIdx + INITIAL_BATCH - 1, numPages - 1));
-        if (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight) {
-          throw new Error('book has zero size after rebuild');
-        }
-      } catch (e) {
-        console.error('[flipbook] rebuild attempt ' + attempt + ' failed:', e);
-        if (attempt < 5) setTimeout(() => robustRebuild(attempt + 1), 300 * attempt);
-      }
-    }
-    function scheduleRebuild(delay) {
+    function handleOrientationCheck() {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => robustRebuild(), delay);
+      resizeTimer = setTimeout(() => {
+        const nowPortrait = window.innerWidth < window.innerHeight;
+        showInstance(nowPortrait ? 'portrait' : 'landscape');
+      }, 300);
     }
-    window.addEventListener('resize', () => scheduleRebuild(400));
-    // orientationchange on iOS/Android can fire before innerWidth/innerHeight
-    // have actually settled to their new values — a longer delay here
-    // reduces the chance of rebuilding with stale (pre-rotation) dimensions.
-    window.addEventListener('orientationchange', () => scheduleRebuild(600));
-    // Last-resort manual recovery: if the book area is ever tapped while
-    // it has no visible content, rebuild once more right away.
-    stageEl.addEventListener('pointerup', () => {
-      if (manifest && (!flipbookEl.offsetWidth || !flipbookEl.offsetHeight)) robustRebuild();
-    });
+    window.addEventListener('resize', handleOrientationCheck);
+    window.addEventListener('orientationchange', handleOrientationCheck);
 
     buildTOC();
   }
