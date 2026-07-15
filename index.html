@@ -34,6 +34,7 @@
     font-family:'Inter', sans-serif;
     color:var(--parchment);
     overflow:hidden;
+    touch-action:manipulation;
   }
 
   /* ---------- Loading screen ---------- */
@@ -99,6 +100,7 @@
     display:flex; align-items:center; justify-content:center;
     cursor:pointer; transition:.2s;
     backdrop-filter:blur(4px);
+    touch-action:manipulation;
   }
   .icon-btn:hover{ background:var(--gold); color:var(--ink-green-dark); border-color:var(--gold); }
   .icon-btn:disabled{ opacity:.35; cursor:default; }
@@ -169,6 +171,13 @@
     background:rgba(184,147,75,.12); border:1px solid rgba(184,147,75,.5);
     border-radius:4px; padding:2px 4px;
   }
+  #page-go{
+    display:none; width:28px; height:28px; border-radius:50%;
+    border:1px solid rgba(184,147,75,.5); background:rgba(184,147,75,.15);
+    color:var(--gold-bright); font-size:.85rem; line-height:1; cursor:pointer;
+    align-items:center; justify-content:center; margin-inline-start:4px;
+  }
+  #page-go svg{ width:14px; height:14px; }
   input[type=range]{
     -webkit-appearance:none; width:180px; height:3px;
     background:rgba(184,147,75,.3); border-radius:3px; outline:none;
@@ -273,7 +282,7 @@
   <button class="icon-btn" id="btn-prev" title="Previous">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
   </button>
-  <div id="page-indicator"><b id="cur-page" title="Click to jump to a page">١</b><input type="text" inputmode="numeric" id="page-input"> / <span id="total-pages">—</span></div>
+  <div id="page-indicator"><b id="cur-page" title="Click to jump to a page">١</b><input type="text" inputmode="numeric" enterkeyhint="done" id="page-input"><button id="page-go" title="Go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></button> / <span id="total-pages">—</span></div>
   <input type="range" id="page-slider" min="1" max="1" value="1">
   <button class="icon-btn" id="btn-next" title="Next">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -446,15 +455,19 @@
     inst.pageFlip.flipPrev();
   }
 
-  async function jumpToLogical(logicalIdx0, animate) {
+  async function jumpToLogical(logicalIdx0) {
     const inst = activeInstance();
     logicalIdx0 = Math.max(0, Math.min(numPages - 1, logicalIdx0));
-    const bigJump = Math.abs(logicalIdx0 - currentLogicalIdx) > 3;
     await ensurePageRendered(inst, logicalIdx0);
     await ensurePageRendered(inst, logicalIdx0 - 1);
     await ensurePageRendered(inst, logicalIdx0 + 1);
-    if (animate === false || bigJump) inst.pageFlip.turnToPage(logicalIdx0);
-    else inst.pageFlip.flip(logicalIdx0);
+    // Always a direct (non-animated) jump — the animated flip(index) call
+    // was landing 2 pages off from the requested target specifically in
+    // two-page spread mode (typing "6" from page 4 landed on 8, typing "6"
+    // from page 8 landed on 4), most likely counting distance in spreads
+    // rather than pages. turnToPage() is instant either way, so nothing is
+    // lost by always using it here.
+    inst.pageFlip.turnToPage(logicalIdx0);
     onPageChanged(inst, logicalIdx0);
   }
 
@@ -486,11 +499,27 @@
     inst.flipbookEl.addEventListener('pointercancel', () => { startX = null; });
   }
 
-  // Computes the single-page pixel dimensions that best fill the current
-  // viewport for a given orientation ("contain" aspect-fit math).
+  // Computes the single-page pixel dimensions that best fill the screen
+  // for a given orientation ("contain" aspect-fit math).
+  //
+  // Both instances are built once, at page load, in whatever orientation
+  // the device happens to be in at that moment — so simply reading
+  // window.innerWidth/innerHeight here was wrong for whichever instance
+  // ISN'T the current orientation: e.g. loading the page in portrait and
+  // then computing the LANDSCAPE instance's size using those same portrait
+  // (narrow) dimensions produces a tiny, wrongly-proportioned result, which
+  // is exactly the "not sized to the screen, not centered" bug after
+  // rotating. A phone's rotation doesn't change its physical screen size,
+  // just which side is "width" and which is "height" — so the fix is to
+  // use the longer physical side as landscape's width and the shorter as
+  // portrait's width, regardless of the device's orientation right now.
   function computeLayoutFor(forcePortrait) {
-    const availW = Math.max(240, window.innerWidth - 24);
-    const availH = Math.max(180, window.innerHeight - 170);
+    const longSide = Math.max(window.innerWidth, window.innerHeight);
+    const shortSide = Math.min(window.innerWidth, window.innerHeight);
+    const rawW = forcePortrait ? shortSide : longSide;
+    const rawH = forcePortrait ? longSide : shortSide;
+    const availW = Math.max(240, rawW - 24);
+    const availH = Math.max(180, rawH - 170);
     const spreadFactor = forcePortrait ? 1 : 2;
     const targetAspect = pdfAspect * spreadFactor;
     let spreadW, spreadH;
@@ -675,24 +704,32 @@
       jumpToLogical(parseInt(slider.value, 10) - 1);
     });
 
+    const pageGo = document.getElementById('page-go');
     curPageEl.addEventListener('click', () => {
       pageInput.value = curPageEl.textContent; // pre-filled in Arabic-Indic, matching the display
       curPageEl.style.display = 'none';
       pageInput.style.display = 'inline-block';
+      pageGo.style.display = 'flex';
       pageInput.focus();
       pageInput.select();
     });
     function commitPageInput() {
       const v = parseFlexibleInt(pageInput.value); // accepts Arabic-Indic (٠-٩) or Western (0-9) digits
       pageInput.style.display = 'none';
+      pageGo.style.display = 'none';
       curPageEl.style.display = '';
       if (!isNaN(v)) jumpToLogical(v - 1);
     }
     pageInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') commitPageInput();
-      if (e.key === 'Escape') { pageInput.style.display = 'none'; curPageEl.style.display = ''; }
+      if (e.key === 'Escape') { pageInput.style.display = 'none'; pageGo.style.display = 'none'; curPageEl.style.display = ''; }
     });
     pageInput.addEventListener('blur', commitPageInput);
+    // Explicit confirm button — needed because some mobile browsers (iOS
+    // Chrome in particular) don't show a "Done"/enter key on the numeric
+    // keypad the way Safari does, leaving no way to submit the typed page
+    // number without this.
+    pageGo.addEventListener('click', commitPageInput);
 
     window.addEventListener('keydown', (e) => {
       if (document.activeElement === pageInput) return;
