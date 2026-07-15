@@ -1,5 +1,5 @@
 {
-  "numPages": 954,
+  "numPages": 958,
   "aspect": 0.68,
   "direction": "rtl",
   "format": "jpg",
@@ -11,82 +11,87 @@
       "items": [
         {
           "title": "الأذكار والآداب",
-          "page": 2,
+          "page": 3,
           "items": []
         },
         {
-          "title": "ثلاثة الأصول",
+          "title": "مختصر الأذكار والآداب",
           "page": 267,
           "items": []
         },
         {
+          "title": "ثلاثة الأصول",
+          "page": 273,
+          "items": []
+        },
+        {
           "title": "القواعد الأربع",
-          "page": 303,
+          "page": 307,
           "items": []
         },
         {
           "title": "نواقض الإسلام",
-          "page": 319,
+          "page": 323,
           "items": []
         },
         {
           "title": "الأربعون النووية",
-          "page": 329,
+          "page": 333,
           "items": []
         },
         {
           "title": "تحفة الأطفال",
-          "page": 403,
+          "page": 407,
           "items": []
         },
         {
           "title": "شروط الصلاة",
-          "page": 420,
+          "page": 425,
           "items": []
         },
         {
           "title": "كتاب التوحيد",
-          "page": 454,
+          "page": 459,
           "items": []
         },
         {
           "title": "منظومة البيقوني",
-          "page": 609,
+          "page": 613,
           "items": []
         },
         {
           "title": "قصيدة الإلبيري",
-          "page": 621,
+          "page": 625,
           "items": []
         },
         {
           "title": "المقدمة الآجرومية",
-          "page": 644,
+          "page": 649,
           "items": []
         },
         {
           "title": "العقيدة الواسطية",
-          "page": 694,
+          "page": 699,
           "items": []
         },
         {
           "title": "الورقات",
-          "page": 790,
+          "page": 795,
           "items": []
         },
         {
           "title": "عنوان الحكم",
-          "page": 835,
+          "page": 839,
           "items": []
         },
         {
           "title": "الرحبية في الفرائض",
-          "page": 851,
+          "page": 855,
           "items": []
         },
         {
           "title": "العقيدة الطحاوية",
-          "page": 903,
+          "page": 907,
           "items": []
         }
       ]
