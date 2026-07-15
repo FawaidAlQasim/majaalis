@@ -133,7 +133,7 @@
   /* Two persistent flip-book instances (portrait-sized, landscape-sized)
      live in the DOM at once; only one is ever display:block at a time.
      Switching between them on orientation change is just a CSS toggle —
-     see the big comment above showInstance() in the script for why. */
+     see the big comment above refreshAndShow() in the script for why. */
   .flipbook-instance{
     box-shadow:0 40px 90px var(--shadow-deep), 0 0 0 1px rgba(184,147,75,.15);
     border-radius:2px;
@@ -356,8 +356,9 @@
   // the book disappear, at the cost of not perfectly re-filling the freed
   // up space. Given how disruptive the disappearing bug was, this is a
   // deliberate trade favoring reliability over perfect responsiveness.
-  const instances = { portrait: null, landscape: null };
-  let activeMode = null;
+  const instances = { a: null, b: null };
+  let activeSlot = null;
+  let lastRawPortrait = null;
 
   const INITIAL_BATCH = 8;
   const PREFETCH_CHUNK = 20;
@@ -390,7 +391,8 @@
     setTimeout(() => window.scrollTo(0, 1), 300);
   }
 
-  function activeInstance() { return instances[activeMode]; }
+  function activeInstance() { return instances[activeSlot]; }
+  function otherSlot(slot) { return slot === 'a' ? 'b' : 'a'; }
 
   function pageImageUrl(logicalIdx0) {
     const num = String(logicalIdx0 + 1).padStart(manifest.digits || 4, '0');
@@ -542,7 +544,7 @@
   // Computes the single-page pixel dimensions that best fill the CURRENT
   // screen for a given spread factor (1 = single page, 2 = two-page
   // spread). Since instances are always rebuilt fresh at the moment
-  // they're about to be shown (see showInstance), this can just use the
+  // they're about to be shown (see refreshAndShow), this can just use the
   // actual current window dimensions directly — no need to guess ahead of
   // time which orientation "the other" instance will eventually need.
   function computeLayoutForSpread(spreadFactor) {
@@ -580,13 +582,14 @@
     return isTabletOrLarger() ? 'landscape' : 'portrait';
   }
 
-  function buildInstance(mode) {
+  function buildInstance(slot) {
+    const mode = decideMode(); // fresh every time — never trust a stale mode
     const spreadFactor = mode === 'landscape' ? 2 : 1;
     const { width, height } = computeLayoutForSpread(spreadFactor);
 
     const container = document.createElement('div');
     container.className = 'flipbook-instance';
-    container.id = 'flipbook-' + mode;
+    container.id = 'flipbook-' + slot;
     flipOuterEl.appendChild(container);
 
     const pf = new St.PageFlip(container, {
@@ -641,28 +644,27 @@
     return inst;
   }
 
-  // Switches which instance is visible. The target instance is rebuilt
-  // fresh — with dimensions computed from the CURRENT window size — right
-  // before being shown, rather than trusting whatever dimensions were
-  // captured once at page load. This matters because mobile browsers
-  // (iOS Safari/Chrome in particular) can report unreliable
-  // window.innerWidth/innerHeight before their own chrome (address bar)
-  // has settled, so a size computed once at startup for "the other"
-  // orientation could simply be wrong. Rebuilding happens while the
-  // instance is still hidden, so there's no risk of a visible flash or
-  // break — and the currently-VISIBLE instance is never touched here,
-  // which is what keeps this safe (that was the source of the earlier
-  // disappearing-book bugs).
-  function showInstance(mode) {
-    if (activeMode === mode) return;
-    const old = instances[mode];
+  // Rebuilds whichever slot ISN'T currently visible, using the CURRENT
+  // window size and decideMode() result, then swaps to show it. Always
+  // targeting "the other slot" (rather than "the slot named after the new
+  // mode") is what makes this safe even when the mode name doesn't change
+  // — which happens on phone-sized screens, where decideMode() returns
+  // 'portrait' in BOTH physical orientations by design. Gating the rebuild
+  // on "did the mode name change" would then skip rebuilding entirely on
+  // a same-mode-name rotation, leaving the OLD (wrong-height) instance on
+  // screen — that was the "top/bottom cropped after rotating" bug. This
+  // way, the currently-visible instance is never the one being rebuilt,
+  // regardless of what triggered the call.
+  function refreshAndShow() {
+    const targetSlot = activeSlot === null ? 'a' : otherSlot(activeSlot);
+    const old = instances[targetSlot];
     if (old) { try { old.pageFlip.destroy(); } catch (e) {} old.flipbookEl.remove(); }
-    instances[mode] = buildInstance(mode);
+    instances[targetSlot] = buildInstance(targetSlot);
 
-    instances.portrait.flipbookEl.style.display = 'none';
-    instances.landscape.flipbookEl.style.display = 'none';
-    activeMode = mode;
-    const inst = instances[mode];
+    if (instances.a) instances.a.flipbookEl.style.display = 'none';
+    if (instances.b) instances.b.flipbookEl.style.display = 'none';
+    activeSlot = targetSlot;
+    const inst = instances[targetSlot];
     inst.flipbookEl.style.display = '';
     inst.pageFlip.turnToPage(currentLogicalIdx);
     onPageChanged(inst, currentLogicalIdx);
@@ -727,26 +729,12 @@
 
     // Wait a frame before the very first size computation — mobile browser
     // chrome (address bar) can report unsettled window dimensions in the
-    // instant right after page load, and this is the one build that
-    // showInstance()'s "rebuild when switching" safeguard doesn't cover.
+    // instant right after page load.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-    instances.portrait = buildInstance('portrait');
-    instances.landscape = buildInstance('landscape');
-    // Explicitly set inline display on BOTH instances (not just relying on
-    // the CSS default for whichever starts inactive) — the flip library
-    // sets its own inline display style on its container during setup,
-    // which silently overrides our stylesheet rule. Without this, the
-    // "inactive" instance could stay visible underneath/beside the active
-    // one, which is what caused the layout corruption (cover stuck on one
-    // side, book jumping to a corner on rotation).
-    instances.portrait.flipbookEl.style.display = 'none';
-    instances.landscape.flipbookEl.style.display = 'none';
-    activeMode = decideMode();
-    instances[activeMode].flipbookEl.style.display = '';
-
     currentLogicalIdx = 0;
-    await ensurePageRendered(activeInstance(), 0);
+    refreshAndShow(); // builds and shows the first instance
+    lastRawPortrait = window.innerWidth < window.innerHeight;
     curPageEl.textContent = toArabicDigits(1);
     slider.value = 1;
 
@@ -818,16 +806,24 @@
       }
     });
 
-    // Orientation change: switch to the OTHER pre-built instance (already
-    // sized for that orientation since page load) — cheap and safe, no
-    // destroy/rebuild involved. Same-orientation resizing (window resize,
-    // fullscreen toggle) intentionally does nothing here — see the big
-    // comment near the top of this script for why that trade-off was made.
+    // Rebuild is gated on the RAW physical orientation flipping (portrait
+    // vs landscape), not on decideMode()'s output — those aren't the same
+    // thing. On phone-sized screens decideMode() returns 'portrait' in
+    // BOTH orientations by design, but the actual available width/height
+    // still swaps on rotation and the instance still needs rebuilding to
+    // reflect that (this is what fixes pages being cropped top/bottom
+    // after rotating). Gating on raw orientation still correctly ignores
+    // same-orientation resizes (fullscreen toggle, on-screen keyboard
+    // opening) that shouldn't trigger a rebuild.
     let resizeTimer;
     function handleOrientationCheck() {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        showInstance(decideMode());
+        const nowPortrait = window.innerWidth < window.innerHeight;
+        if (nowPortrait !== lastRawPortrait) {
+          lastRawPortrait = nowPortrait;
+          refreshAndShow();
+        }
         hideAddressBar();
       }, 300);
     }
