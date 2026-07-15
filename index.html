@@ -531,28 +531,15 @@
     inst.flipbookEl.addEventListener('pointercancel', () => { startX = null; });
   }
 
-  // Computes the single-page pixel dimensions that best fill the screen
-  // for a given orientation ("contain" aspect-fit math).
-  //
-  // Both instances are built once, at page load, in whatever orientation
-  // the device happens to be in at that moment — so simply reading
-  // window.innerWidth/innerHeight here was wrong for whichever instance
-  // ISN'T the current orientation: e.g. loading the page in portrait and
-  // then computing the LANDSCAPE instance's size using those same portrait
-  // (narrow) dimensions produces a tiny, wrongly-proportioned result, which
-  // is exactly the "not sized to the screen, not centered" bug after
-  // rotating. A phone's rotation doesn't change its physical screen size,
-  // just which side is "width" and which is "height" — so the fix is to
-  // use the longer physical side as landscape's width and the shorter as
-  // portrait's width, regardless of the device's orientation right now.
-  function computeLayoutFor(forcePortrait) {
-    const longSide = Math.max(window.innerWidth, window.innerHeight);
-    const shortSide = Math.min(window.innerWidth, window.innerHeight);
-    const rawW = forcePortrait ? shortSide : longSide;
-    const rawH = forcePortrait ? longSide : shortSide;
-    const availW = Math.max(240, rawW - 24);
-    const availH = Math.max(180, rawH - 170);
-    const spreadFactor = forcePortrait ? 1 : 2;
+  // Computes the single-page pixel dimensions that best fill the CURRENT
+  // screen for a given spread factor (1 = single page, 2 = two-page
+  // spread). Since instances are always rebuilt fresh at the moment
+  // they're about to be shown (see showInstance), this can just use the
+  // actual current window dimensions directly — no need to guess ahead of
+  // time which orientation "the other" instance will eventually need.
+  function computeLayoutForSpread(spreadFactor) {
+    const availW = Math.max(240, window.innerWidth - 24);
+    const availH = Math.max(180, window.innerHeight - 170);
     const targetAspect = pdfAspect * spreadFactor;
     let spreadW, spreadH;
     if (availW / availH > targetAspect) {
@@ -565,9 +552,29 @@
     return { width: Math.round(spreadW / spreadFactor), height: Math.round(spreadH) };
   }
 
+  // Phone-sized screens stay single-page even in landscape — a two-page
+  // spread on a phone's short landscape height makes the text too small to
+  // read comfortably. There's no reliable way to actually lock a phone's
+  // physical orientation from a webpage (the Screen Orientation API's
+  // lock() isn't supported on iOS at all, and is inconsistent on Android),
+  // so this achieves the same practical outcome a different way: the phone
+  // can still physically rotate, but the reader always shows one page,
+  // sized to fill whatever space that rotation gives it — a single large
+  // page in landscape reads better than a cramped spread would anyway.
+  // 600px comfortably separates every common phone (~430px max) from every
+  // common tablet (~744px+), with room to spare — adjust if needed.
+  function isTabletOrLarger() {
+    return Math.min(window.innerWidth, window.innerHeight) >= 600;
+  }
+  function decideMode() {
+    const nowPortrait = window.innerWidth < window.innerHeight;
+    if (nowPortrait) return 'portrait';
+    return isTabletOrLarger() ? 'landscape' : 'portrait';
+  }
+
   function buildInstance(mode) {
-    const forcePortrait = mode === 'portrait';
-    const { width, height } = computeLayoutFor(forcePortrait);
+    const spreadFactor = mode === 'landscape' ? 2 : 1;
+    const { width, height } = computeLayoutForSpread(spreadFactor);
 
     const container = document.createElement('div');
     container.className = 'flipbook-instance';
@@ -580,7 +587,7 @@
       minWidth: 200, maxWidth: 2000,
       minHeight: 250, maxHeight: 2000,
       showCover: true,
-      usePortrait: forcePortrait,
+      usePortrait: spreadFactor === 1,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: true,
       useMouseEvents: false,
@@ -727,7 +734,7 @@
     // side, book jumping to a corner on rotation).
     instances.portrait.flipbookEl.style.display = 'none';
     instances.landscape.flipbookEl.style.display = 'none';
-    activeMode = (window.innerWidth < window.innerHeight) ? 'portrait' : 'landscape';
+    activeMode = decideMode();
     instances[activeMode].flipbookEl.style.display = '';
 
     currentLogicalIdx = 0;
@@ -812,8 +819,7 @@
     function handleOrientationCheck() {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        const nowPortrait = window.innerWidth < window.innerHeight;
-        showInstance(nowPortrait ? 'portrait' : 'landscape');
+        showInstance(decideMode());
         hideAddressBar();
       }, 300);
     }
